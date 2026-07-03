@@ -223,6 +223,11 @@ func (m *replModel) tickCmd() tea.Cmd {
 	return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
+func (m *replModel) pushUserInput(input string) {
+	m.pushHist("user-label", "You")
+	m.pushHist("user", input)
+}
+
 func (m *replModel) pushHist(style, text string) {
 	m.histLines = append(m.histLines, histLine{style: style, text: text})
 	m.rebuildViewport()
@@ -298,8 +303,7 @@ func (m *replModel) startAgent(userInput string) tea.Cmd {
 	m.running = true
 	m.spinText = "Running…"
 	m.statusBar = "Agent running — Esc or /stop to cancel"
-	m.pushHist("user-label", "You")
-	m.pushHist("user", userInput)
+	m.pushUserInput(userInput)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	m.agentCancel = cancel
@@ -323,14 +327,12 @@ func (m *replModel) startAgent(userInput string) tea.Cmd {
 	return m.listenEvents()
 }
 
-func (m *replModel) startLoop(goal string) (tea.Model, tea.Cmd) {
+func (m *replModel) startLoop(input, goal string) (tea.Model, tea.Cmd) {
 	m.running = true
 	m.spinText = "Loop…"
 	m.statusBar = "Loop running — Esc or /stop to cancel"
 	m.pushHist("success", "🎯 Loop: "+goal)
-	m.pushHist("user-label", "You")
-	m.pushHist("user", "/loop "+goal)
-	m.pushHist("success", "🎯 Loop: "+goal)
+	m.pushUserInput(input)
 
 	m.app.console.SetHooks(m.uiHooks())
 
@@ -371,31 +373,36 @@ func (m *replModel) submit() (tea.Model, tea.Cmd) {
 	m.resizeViewport()
 
 	if m.running && (input == "/stop" || input == "/s") {
+		m.pushUserInput(input)
 		m.cancelAgent()
 		m.pushHist("warning", "Stopping…")
 		return m, nil
 	}
 	if m.running {
+		m.pushUserInput(input)
 		m.pushHist("warning", "Agent is running — Esc or /stop to cancel")
 		return m, nil
 	}
 
 	if input == "/stop" || input == "/s" {
+		m.pushUserInput(input)
 		m.pushHist("warning", "No task running.")
-		return m, nil
+		return m, m.listenEvents()
 	}
 
 	if goal, ok := parseLoopGoal(input); ok {
-		return m.startLoop(goal)
+		return m.startLoop(input, goal)
 	}
 
 	handled, quit := m.app.handleCommand(input, m.ctx, m.ctxFile, m.systemPrompt)
 	if quit {
+		m.pushUserInput(input)
 		m.quitting = true
 		return m, tea.Quit
 	}
 	if handled {
-		return m, nil
+		m.pushUserInput(input)
+		return m, m.listenEvents()
 	}
 
 	logx.Debugf("user input: %q", input)
@@ -468,7 +475,7 @@ func (m *replModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case agentDoneMsg:
 		m.finishAgent()
-		return m, nil
+		return m, m.listenEvents()
 
 	case tea.MouseMsg:
 		if msg.Type == tea.MouseWheelUp {

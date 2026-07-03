@@ -179,17 +179,37 @@ func (a *App) handleCommand(userInput string, ctx *agentctx.Manager, ctxFile, sy
 		a.console.Warning("/goal is deprecated. Use /loop <goal> instead.")
 		return true, false
 	case strings.HasPrefix(userInput, "/l") || strings.HasPrefix(userInput, "/loop"):
-		parts := strings.SplitN(userInput, " ", 2)
-		if len(parts) != 2 || strings.TrimSpace(parts[1]) == "" {
+		goal, ok := parseLoopGoal(userInput)
+		if !ok {
 			a.console.Error("Please input '/l or /loop <query>'")
 			return true, false
 		}
-		goal := strings.TrimSpace(parts[1])
 		a.console.Success("🎯 Loop: " + goal)
-		a.runLoopEngine(goal, 5)
+		if !a.console.TUIMode() {
+			a.runLoopEngine(goal, 5)
+		}
 		return true, false
 	}
 	return false, false
+}
+
+// parseLoopGoal 解析 /loop 或 /l 命令的目标；格式不合法时 ok=false。
+func parseLoopGoal(userInput string) (goal string, ok bool) {
+	var rest string
+	switch {
+	case strings.HasPrefix(userInput, "/loop "):
+		rest = userInput[6:]
+	case userInput == "/loop":
+		return "", false
+	case strings.HasPrefix(userInput, "/l "):
+		rest = userInput[3:]
+	case userInput == "/l":
+		return "", false
+	default:
+		return "", false
+	}
+	goal = strings.TrimSpace(rest)
+	return goal, goal != ""
 }
 
 func (a *App) helper() {

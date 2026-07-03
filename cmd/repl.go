@@ -180,17 +180,7 @@ func (a *App) runTUI(ctx *agentctx.Manager, ctxFile, systemPrompt string) error 
 	return err
 }
 
-func (m *replModel) installUIHooks() {
-	ch := m.eventCh
-	m.app.console.SetHooks(&ui.Hooks{
-		Silent: true,
-		OnEvent: func(ev ui.Event) {
-			ch <- ev
-		},
-	})
-}
-
-func (m *replModel) agentHooks() *ui.Hooks {
+func (m *replModel) uiHooks() *ui.Hooks {
 	confirmIn := m.confirmIn
 	ch := m.eventCh
 	return &ui.Hooks{
@@ -204,6 +194,14 @@ func (m *replModel) agentHooks() *ui.Hooks {
 			return <-resp
 		},
 	}
+}
+
+func (m *replModel) installUIHooks() {
+	m.app.console.SetHooks(m.uiHooks())
+}
+
+func (m *replModel) agentHooks() *ui.Hooks {
+	return m.uiHooks()
 }
 
 func (m *replModel) listenEvents() tea.Cmd {
@@ -325,6 +323,27 @@ func (m *replModel) startAgent(userInput string) tea.Cmd {
 	return m.listenEvents()
 }
 
+func (m *replModel) startLoop(goal string) (tea.Model, tea.Cmd) {
+	m.running = true
+	m.spinText = "Loop…"
+	m.statusBar = "Loop running — Esc or /stop to cancel"
+	m.pushHist("success", "🎯 Loop: "+goal)
+	m.pushHist("user-label", "You")
+	m.pushHist("user", "/loop "+goal)
+	m.pushHist("success", "🎯 Loop: "+goal)
+
+	m.app.console.SetHooks(m.uiHooks())
+
+	go func() {
+		m.app.runLoopEngine(goal, 5)
+		if m.program != nil {
+			m.program.Send(agentDoneMsg{})
+		}
+	}()
+
+	return m, tea.Batch(m.listenEvents())
+}
+
 func (m *replModel) cancelAgent() {
 	if m.agentCancel != nil {
 		m.agentCancel()
@@ -364,6 +383,10 @@ func (m *replModel) submit() (tea.Model, tea.Cmd) {
 	if input == "/stop" || input == "/s" {
 		m.pushHist("warning", "No task running.")
 		return m, nil
+	}
+
+	if goal, ok := parseLoopGoal(input); ok {
+		return m.startLoop(goal)
 	}
 
 	handled, quit := m.app.handleCommand(input, m.ctx, m.ctxFile, m.systemPrompt)

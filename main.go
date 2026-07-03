@@ -1,4 +1,4 @@
-// marspi-cli 是参考 mangopi-cli 的 Go 实现：终端 AI 编程助手。
+// marspi-cli：终端 AI 编程助手。提供交互式 REPL、flash-ext 代理子命令与 -doctor 环境诊断。
 package main
 
 import (

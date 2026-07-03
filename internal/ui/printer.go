@@ -48,7 +48,7 @@ func (p *Printer) writeLineLocked(text string) {
 	if p.running {
 		clearSpinnerLine()
 	}
-	fmt.Println(text)
+	fmt.Fprintln(os.Stdout, text)
 	if p.running {
 		p.renderFrame("⠋")
 	}
@@ -229,5 +229,6 @@ func (p *Printer) EndSpinner() {
 	<-done
 	p.mu.Lock()
 	clearSpinnerLine()
+	fmt.Fprintln(os.Stdout) // 换行，避免后续输出与 spinner 行重叠
 	p.mu.Unlock()
 }

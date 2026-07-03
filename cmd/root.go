@@ -12,6 +12,7 @@ import (
 	"github.com/mars/marspi-cli/internal/agentctx"
 	"github.com/mars/marspi-cli/internal/config"
 	"github.com/mars/marspi-cli/internal/i18n"
+	"github.com/mars/marspi-cli/internal/logx"
 	"github.com/mars/marspi-cli/internal/llm"
 	"github.com/mars/marspi-cli/internal/memory"
 	"github.com/mars/marspi-cli/internal/prompt"
@@ -93,6 +94,10 @@ func (a *App) Run() error {
 	}
 	fmt.Printf("%sMarspi Cli v%s%s | %s%s | %s%s\n\n",
 		ui.Bold, config.Version, ui.Reset, ui.Dim, mode, a.cfg.ProjectRoot, ui.Reset)
+	if logx.Enabled() {
+		a.console.Text("debug logging enabled (MARS_DEBUG=1)")
+	}
+	logx.Debugf("provider model=%s url=%s routing=%s", a.provider.Model(), a.provider.APIURL(), a.cfg.Routing)
 
 	ctxFile := filepath.Join(a.cfg.SessionDir, "session.json")
 	ctx := agentctx.New(a.cfg.MaxContext, a.provider, a.registry.Schemas(), a.console)
@@ -118,10 +123,11 @@ func (a *App) Run() error {
 
 		if handled, quit := a.handleCommand(userInput, ctx, ctxFile, systemPrompt); quit {
 			return nil
-		} else if !handled {
-			continue
+		} else if handled {
+			continue // 斜杠命令已处理
 		}
 
+		logx.Debugf("user input: %q", userInput)
 		normal := userInput + ", Current date: " + nowStr()
 		if a.routed != nil {
 			a.routed.Route(userInput, ctx.ToolFingerprint(10))
@@ -134,7 +140,8 @@ func (a *App) Run() error {
 }
 
 // handleCommand 处理内置斜杠命令。
-// 返回 (handled, quit)：handled 表示已消费输入；quit 表示应退出 REPL。
+// 返回 (handled, quit)：handled=true 表示斜杠命令已消费；quit=true 表示退出 REPL。
+// 普通用户输入返回 (false, false)，由调用方进入 agent loop。
 func (a *App) handleCommand(userInput string, ctx *agentctx.Manager, ctxFile, systemPrompt string) (handled, quit bool) {
 	switch {
 	case userInput == "/q" || userInput == "/quit":

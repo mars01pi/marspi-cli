@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/mars/marspi-cli/internal/logx"
 	"github.com/mars/marspi-cli/internal/ui"
 )
 
@@ -22,6 +23,7 @@ func Request(url string, body map[string]any, headers map[string]string, timeout
 	if err != nil {
 		return nil, err
 	}
+	logx.Debugf("POST %s (%d bytes)", url, len(payload))
 	client := &http.Client{Timeout: timeout}
 	var lastErr error
 	for attempt := 0; attempt <= maxRetries; attempt++ {
@@ -45,6 +47,10 @@ func Request(url string, body map[string]any, headers map[string]string, timeout
 				if jerr := json.Unmarshal(data, &out); jerr != nil {
 					lastErr = jerr
 				} else {
+					logx.Debugf("HTTP %d (%d bytes)", resp.StatusCode, len(data))
+					if msg := apiErrorFromBody(out); msg != "" {
+						return nil, fmt.Errorf("api error: %s", msg)
+					}
 					return out, nil
 				}
 			} else if resp.StatusCode >= 500 || resp.StatusCode == 429 {

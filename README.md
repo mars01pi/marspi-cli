@@ -1,6 +1,6 @@
 # Marspi CLI
 
-Go 实现的终端 AI 编程助手，参考 [mangopi-cli](https://github.com/w4n9H/mangopi-cli) 的功能设计。
+Go 实现的终端 AI 编程助手
 
 ## 特性
 
@@ -35,16 +35,19 @@ export MARS_MODEL=deepseek-v4-flash
 
 ## 环境变量
 
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `MARS_KEY` | — | API Key（必填） |
-| `MARS_API_URL` | `https://api.deepseek.com` | API 地址 |
-| `MARS_MODEL` | `deepseek-v4-flash` | 模型名 |
-| `MARS_MAX_CONTEXT` | `1000000` | 上下文 token 上限 |
-| `MARS_MAX_ITER` | `100` | 单轮最大工具迭代 |
-| `MARS_LANG` | `en` | 界面语言 `en` / `zh` |
-| `MARS_ROUTING` | `off` | Smart Routing：`on` / `off` |
-| `MARS_SEARCH_API_KEY` | — | 博查 Web Search API Key |
+
+| 变量                    | 默认值                        | 说明                         |
+| --------------------- | -------------------------- | -------------------------- |
+| `MARS_KEY`            | —                          | API Key（必填）                |
+| `MARS_API_URL`        | `https://api.deepseek.com` | API 地址                     |
+| `MARS_MODEL`          | `deepseek-v4-flash`        | 模型名                        |
+| `MARS_MAX_CONTEXT`    | `1000000`                  | 上下文 token 上限               |
+| `MARS_MAX_ITER`       | `100`                      | 单轮最大工具迭代                   |
+| `MARS_LANG`           | `en`                       | 界面语言 `en` / `zh`           |
+| `MARS_ROUTING`        | `off`                      | Smart Routing：`on` / `off` |
+| `MARS_SEARCH_API_KEY` | —                          | 博查 Web Search API Key      |
+| `MARS_DEBUG`          | —                          | 设为 `1` 开启调试日志（输出到 stderr）  |
+
 
 持久化目录：`<cwd>/.mangocli/`（session、memory、loops、providers.json）。
 
@@ -59,13 +62,15 @@ export MARS_ROUTING=on
 
 ## 内置命令
 
-| 命令 | 说明 |
-|------|------|
-| `/q` `/quit` | 退出 |
-| `/c` `/compact` | 手动 full compact |
-| `/n` `/new` | 新建会话 |
-| `/h` `/help` | 帮助 |
+
+| 命令                  | 说明               |
+| ------------------- | ---------------- |
+| `/q` `/quit`        | 退出               |
+| `/c` `/compact`     | 手动 full compact  |
+| `/n` `/new`         | 新建会话             |
+| `/h` `/help`        | 帮助               |
 | `/l` `/loop <goal>` | Loop Engineering |
+
 
 ## 开发
 
@@ -73,6 +78,13 @@ export MARS_ROUTING=on
 make test    # 运行测试
 make build   # 构建二进制
 go install   # 安装到 $GOPATH/bin
+```
+
+调试（查看请求/响应摘要、工具调用等）：
+
+```bash
+export MARS_DEBUG=1
+./marspi-cli
 ```
 
 ## License

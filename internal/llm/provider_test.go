@@ -1,6 +1,9 @@
 package llm
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestNormalizeToolCalls(t *testing.T) {
 	msg := Message{
@@ -66,6 +69,31 @@ func TestParseOpenAIResponse(t *testing.T) {
 	}
 	if r.HasToolCalls {
 		t.Error("should have no tool calls")
+	}
+}
+
+func TestParseAPIErrorInBody(t *testing.T) {
+	resp := map[string]any{
+		"error": map[string]any{"message": "Invalid API key", "type": "authentication_error"},
+	}
+	r := parseOpenAIResponse(resp)
+	if r.FinishReason != "error" || !strings.Contains(r.Content, "Invalid API key") {
+		t.Errorf("expected api error, got %+v", r)
+	}
+}
+
+func TestMessageContentNull(t *testing.T) {
+	if got := messageContent(Message{"content": nil}); got != "" {
+		t.Errorf("nil content: got %q", got)
+	}
+}
+
+func TestMessageContentBlocks(t *testing.T) {
+	msg := Message{"content": []any{
+		map[string]any{"type": "text", "text": "hello"},
+	}}
+	if got := messageContent(msg); got != "hello" {
+		t.Errorf("block content: got %q", got)
 	}
 }
 

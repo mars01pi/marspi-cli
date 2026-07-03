@@ -10,6 +10,7 @@ import (
 
 	"github.com/mars/marspi-cli/internal/agentctx"
 	"github.com/mars/marspi-cli/internal/llm"
+	"github.com/mars/marspi-cli/internal/logx"
 	"github.com/mars/marspi-cli/internal/tool"
 	"github.com/mars/marspi-cli/internal/ui"
 )
@@ -28,6 +29,7 @@ type Runner struct {
 func (r *Runner) Loop(ctx *agentctx.Manager, ctxFilePath, userInput string) {
 	ctx.AppendUser(userInput)
 	tools := r.Registry.Schemas()
+	logx.Debugf("agent loop start: model=%s tools=%d", r.Provider.Model(), len(tools))
 
 	iteration := 0
 	for {
@@ -35,8 +37,12 @@ func (r *Runner) Loop(ctx *agentctx.Manager, ctxFilePath, userInput string) {
 			reportError(r.Console, "MARS_KEY is not set (required)\n  export MARS_KEY=sk-your-key")
 			break
 		}
+		// spinner 使用 \r 覆写当前行；先换行避免吃掉用户输入行上的输出。
+		fmt.Println()
 		r.Console.StartSpinner("Request...")
-		raw, err := llm.Request(r.Provider.APIURL(), r.Provider.BuildBody(ctx.PrepareForAPI(), tools),
+		msgs := ctx.PrepareForAPI()
+		logx.Debugf("request iteration=%d messages=%d", iteration+1, len(msgs))
+		raw, err := llm.Request(r.Provider.APIURL(), r.Provider.BuildBody(msgs, tools),
 			r.Provider.Headers(), 300*time.Second, 3)
 		r.Console.EndSpinner()
 		if err != nil {
@@ -44,6 +50,10 @@ func (r *Runner) Loop(ctx *agentctx.Manager, ctxFilePath, userInput string) {
 			break
 		}
 		resp := r.Provider.ParseResponse(raw)
+		if resp.FinishReason == "error" {
+			reportError(r.Console, resp.Content)
+			break
+		}
 		ctx.AppendAssistant(resp.RawMessage)
 
 		iteration++
@@ -57,15 +67,27 @@ func (r *Runner) Loop(ctx *agentctx.Manager, ctxFilePath, userInput string) {
 			r.Console.Output(resp.Content)
 		}
 
+		if resp.Content == "" && resp.ReasoningContent == "" && !resp.HasToolCalls {
+			reportError(r.Console, fmt.Sprintf(
+				"empty model response (finish_reason=%q, model=%s)",
+				resp.FinishReason, r.Provider.Model(),
+			))
+			break
+		}
+
 		if resp.FinishReason == "stop" {
 			break
 		}
 		if resp.HasToolCalls {
 			completed := false
 			for _, tc := range resp.ToolCalls {
+				logx.Debugf("tool call: %s", tc.Name)
 				result := r.Registry.Execute(tc.Name, tc.Arguments)
 				ctx.AppendTool(tc.ID, tc.Name, result)
 				if tc.Name == "attempt_completion" {
+					if s, ok := result.(string); ok && s != "" {
+						r.Console.Output(s)
+					}
 					completed = true
 					break
 				}
@@ -74,6 +96,7 @@ func (r *Runner) Loop(ctx *agentctx.Manager, ctxFilePath, userInput string) {
 				break
 			}
 		} else {
+			logx.Debugf("loop exit: finish_reason=%q no tool calls", resp.FinishReason)
 			break
 		}
 		if iteration == r.MaxIter {

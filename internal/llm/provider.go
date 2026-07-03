@@ -2,7 +2,10 @@ package llm
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
+
+	"github.com/mars/marspi-cli/internal/logx"
 )
 
 // BaseProvider 提供 Provider 的公共字段与共享逻辑。
@@ -182,6 +185,11 @@ func notEmpty(v any) bool {
 
 // parseOpenAIResponse 是 OpenAI 兼容格式的响应解析，供各 provider 复用。
 func parseOpenAIResponse(resp map[string]any) Response {
+	if msg := apiErrorFromBody(resp); msg != "" {
+		logx.Debugf("api error in body: %s", msg)
+		return Response{FinishReason: "error", Content: msg, RawMessage: Message{"error": msg}}
+	}
+
 	var r Response
 	choices, _ := resp["choices"].([]any)
 	var message Message
@@ -195,7 +203,7 @@ func parseOpenAIResponse(resp map[string]any) Response {
 		message = Message{}
 	}
 	r.RawMessage = message
-	r.Content, _ = message["content"].(string)
+	r.Content = messageContent(message)
 	r.ReasoningContent = extractReasoning(message)
 	r.ToolCalls = normalizeToolCalls(message)
 	r.HasToolCalls = len(r.ToolCalls) > 0
@@ -207,7 +215,56 @@ func parseOpenAIResponse(resp map[string]any) Response {
 			TotalTokens:      asInt(u["total_tokens"]),
 		}
 	}
+	logx.Debugf("parsed response: finish=%q content_len=%d reasoning_len=%d tools=%d",
+		r.FinishReason, len(r.Content), len(r.ReasoningContent), len(r.ToolCalls))
 	return r
+}
+
+// apiErrorFromBody 从 200 响应体中提取 error 字段。
+func apiErrorFromBody(resp map[string]any) string {
+	errObj, ok := resp["error"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	msg, _ := errObj["message"].(string)
+	if msg == "" {
+		msg, _ = errObj["msg"].(string)
+	}
+	if msg == "" {
+		return ""
+	}
+	if typ, _ := errObj["type"].(string); typ != "" {
+		return typ + ": " + msg
+	}
+	return msg
+}
+
+// messageContent 提取 assistant message 的文本 content（兼容 null / 多模态数组）。
+func messageContent(message Message) string {
+	v, ok := message["content"]
+	if !ok || v == nil {
+		return ""
+	}
+	switch x := v.(type) {
+	case string:
+		return x
+	case []any:
+		var parts []string
+		for _, item := range x {
+			blk, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			if t, _ := blk["type"].(string); t == "text" {
+				if s, _ := blk["text"].(string); s != "" {
+					parts = append(parts, s)
+				}
+			}
+		}
+		return strings.Join(parts, "\n")
+	default:
+		return fmt.Sprintf("%v", v)
+	}
 }
 
 func asInt(v any) int {

@@ -54,7 +54,8 @@ export MARS_MODEL=deepseek-v4-flash
 | 按键 | 作用 |
 |------|------|
 | `Enter` | 发送消息 |
-| `Shift+Enter` | 换行（多行输入） |
+| `Shift+Enter` / `Ctrl+J` | 换行（Cursor/VS Code 终端下 Shift+Enter 发 `\n`） |
+| `Alt+Enter` | 换行（备用） |
 | `PgUp` / `PgDn` | 滚动历史（滚轮亦可） |
 | `Esc` | 中断当前 agent 任务 |
 | `/stop` / `/s` | 同上（命令方式） |

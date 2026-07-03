@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -88,13 +89,17 @@ type replModel struct {
 
 func newReplModel(a *App, ctx *agentctx.Manager, ctxFile, systemPrompt, header string) *replModel {
 	ta := textarea.New()
-	ta.Placeholder = "Message…  Enter to send · Shift+Enter newline"
+	ta.Placeholder = "Message…  Enter send · Shift+Enter newline"
 	ta.Focus()
 	ta.CharLimit = 0
 	ta.SetWidth(80)
 	ta.SetHeight(replInputMinRows)
 	ta.ShowLineNumbers = false
 	ta.Prompt = "❯ "
+	// Enter 由外层提交；换行用 ctrl+j（多数终端 Shift+Enter 发 \n）或 alt+enter。
+	km := textarea.DefaultKeyMap
+	km.InsertNewline = key.NewBinding(key.WithKeys("ctrl+j", "alt+enter"))
+	ta.KeyMap = km
 
 	vp := viewport.New(80, 20)
 	vp.SetContent("")
@@ -384,6 +389,22 @@ func (m *replModel) answerConfirm(yes bool) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *replModel) insertNewline(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// 先增高再插入换行，避免 height=1 时 repositionView 把第一行滚出视口。
+	next := m.inputLineCount() + 1
+	if next > replInputMaxRows {
+		next = replInputMaxRows
+	}
+	if next > m.ta.Height() {
+		m.ta.SetHeight(next)
+		m.resizeViewport()
+	}
+	var cmd tea.Cmd
+	m.ta, cmd = m.ta.Update(msg)
+	m.adjustInputHeight()
+	return m, cmd
+}
+
 func (m *replModel) scrollHistory(up bool, lines int) (tea.Model, tea.Cmd) {
 	m.autoScroll = false
 	if up {
@@ -465,11 +486,8 @@ func (m *replModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "enter":
 			return m.submit()
-		case "shift+enter":
-			var cmd tea.Cmd
-			m.ta, cmd = m.ta.Update(msg)
-			m.adjustInputHeight()
-			return m, cmd
+		case "ctrl+j", "alt+enter", "shift+enter":
+			return m.insertNewline(msg)
 		case "ctrl+c":
 			m.quitting = true
 			return m, tea.Quit

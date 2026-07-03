@@ -71,6 +71,9 @@ func (r *Runner) LoopCtx(runCtx context.Context, ctx *agentctx.Manager, ctxFileP
 		iteration++
 		r.Console.TokenUsage(iteration, resp.Usage.PromptTokens, resp.Usage.CompletionTokens,
 			ctx.TotalTokens(), r.MaxContext)
+		if r.Console.TUIMode() {
+			r.Console.RoundMarker(iteration)
+		}
 
 		if resp.ReasoningContent != "" {
 			r.Console.Thinking(resp.ReasoningContent)

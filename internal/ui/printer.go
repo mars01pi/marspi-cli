@@ -8,10 +8,15 @@ import (
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/mars/marspi-cli/internal/i18n"
 )
 
+const tuiToolPreviewMax = 25
+
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+func stripANSI(s string) string { return ansi.Strip(s) }
 
 // Printer 负责所有终端输出，内含并发安全的 spinner。
 type Printer struct {
@@ -43,6 +48,11 @@ func (p *Printer) emit(ev Event) {
 
 func (p *Printer) stdoutEnabled() bool {
 	return p.hooks == nil || !p.hooks.Silent
+}
+
+// TUIMode 是否处于 TUI 静默输出模式。
+func (p *Printer) TUIMode() bool {
+	return p.hooks != nil && p.hooks.Silent
 }
 
 func clearSpinnerLine() { fmt.Print("\r\033[K") }
@@ -116,6 +126,16 @@ func (p *Printer) ToolResult(ok bool) {
 
 // ToolPreview 打印工具 stdout 预览（对齐 ⎿ 前缀格式）。
 func (p *Printer) ToolPreview(lines []string) {
+	total := len(lines)
+	tui := p.TUIMode()
+	if tui {
+		for i := range lines {
+			lines[i] = stripANSI(lines[i])
+		}
+	}
+	if tui && total > tuiToolPreviewMax {
+		lines = lines[:tuiToolPreviewMax]
+	}
 	if len(lines) == 0 {
 		p.emit(Event{Kind: EvLine, Text: "⎿  (no output)", Style: "tool-result"})
 		if p.stdoutEnabled() {
@@ -141,6 +161,16 @@ func (p *Printer) ToolPreview(lines []string) {
 			p.writeLineLocked("     " + C(line, Dim))
 		}
 		p.mu.Unlock()
+	}
+	if tui && total > tuiToolPreviewMax {
+		more := total - tuiToolPreviewMax
+		hint := fmt.Sprintf("⎿  … and %d more lines (PgUp/PgDn to scroll history)", more)
+		p.emit(Event{Kind: EvLine, Text: hint, Style: "tool-result"})
+		if p.stdoutEnabled() {
+			p.mu.Lock()
+			p.writeLineLocked("  " + C(hint, Dim))
+			p.mu.Unlock()
+		}
 	}
 }
 
@@ -171,6 +201,18 @@ func (p *Printer) Success(msg string) {
 // Text 打印灰色文本。
 func (p *Printer) Text(msg string) { p.writeLine(C(msg, Grey)) }
 
+// RoundMarker 在 TUI 中标记 agent 迭代轮次。
+func (p *Printer) RoundMarker(n int) {
+	text := fmt.Sprintf("── round %d ──", n)
+	p.emit(Event{Kind: EvLine, Text: text, Style: "round"})
+	if !p.stdoutEnabled() {
+		return
+	}
+	p.mu.Lock()
+	p.writeLineLocked(C(text, Grey))
+	p.mu.Unlock()
+}
+
 // Separator 打印分隔线。
 func (p *Printer) Separator() {
 	p.writeLine(Dim + strings.Repeat("─", 80) + Reset)
@@ -179,7 +221,12 @@ func (p *Printer) Separator() {
 // Thinking 打印模型思考内容。
 func (p *Printer) Thinking(content string) {
 	p.Section(i18n.T("llm.thinking"))
-	for _, line := range strings.Split(content, "\n") {
+	lines := strings.Split(content, "\n")
+	if p.TUIMode() && len(lines) > 30 {
+		lines = append(lines[:30], fmt.Sprintf("… (%d more lines)", len(lines)-30))
+	}
+	for _, line := range lines {
+		line = stripANSI(line)
 		p.emit(Event{Kind: EvLine, Text: line, Style: "thinking"})
 		if p.stdoutEnabled() {
 			p.writeLine("  " + C(line, Grey))

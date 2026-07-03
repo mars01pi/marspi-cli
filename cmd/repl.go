@@ -23,22 +23,22 @@ const (
 	replStatusRows   = 1
 )
 
-const replHelpHint = "Enter send · Shift+Enter newline · Esc stop · /help"
+const replHelpHint = "Enter send · Shift+Enter newline · PgUp/PgDn scroll · Esc stop"
 
 var (
-	replUserStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
-	replSecStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("208")).Bold(true)
-	replDimStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	replOutStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	replUserStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
+	replSecStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("208")).Bold(true)
+	replDimStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	replOutStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
 	replThinkStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
-	replToolStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("81"))
-	replErrStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
-	replOkStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
-	replWarnStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+	replToolStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("81"))
+	replErrStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+	replOkStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
+	replWarnStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
 	replDebugStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Italic(true)
-	replSpinStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("208"))
-	replBarStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Background(lipgloss.Color("235"))
-	replBoxStyle  = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240"))
+	replSpinStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("208"))
+	replBarStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Background(lipgloss.Color("235"))
+	replBoxStyle   = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240"))
 )
 
 var replSpinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
@@ -51,6 +51,11 @@ type confirmRequestMsg struct {
 }
 type tickMsg time.Time
 
+type histLine struct {
+	style string
+	text  string
+}
+
 type replModel struct {
 	app          *App
 	program      *tea.Program
@@ -59,23 +64,26 @@ type replModel struct {
 	systemPrompt string
 	header       string
 
-	vp           viewport.Model
-	ta           textarea.Model
-	history      strings.Builder
-	width        int
-	height       int
+	vp        viewport.Model
+	ta        textarea.Model
+	histLines []histLine
+	width     int
+	height    int
 
-	running      bool
-	spinIdx      int
-	spinText     string
-	agentCancel  context.CancelFunc
-	confirmIn    chan confirmRequestMsg
+	eventCh    chan ui.Event
+	autoScroll bool
 
-	confirmMsg   string
-	confirmResp  chan bool
+	running     bool
+	spinIdx     int
+	spinText    string
+	agentCancel context.CancelFunc
+	confirmIn   chan confirmRequestMsg
 
-	statusBar    string
-	quitting     bool
+	confirmMsg  string
+	confirmResp chan bool
+
+	statusBar string
+	quitting  bool
 }
 
 func newReplModel(a *App, ctx *agentctx.Manager, ctxFile, systemPrompt, header string) *replModel {
@@ -94,6 +102,7 @@ func newReplModel(a *App, ctx *agentctx.Manager, ctxFile, systemPrompt, header s
 	return &replModel{
 		app: a, ctx: ctx, ctxFile: ctxFile, systemPrompt: systemPrompt, header: header,
 		vp: vp, ta: ta, confirmIn: make(chan confirmRequestMsg),
+		eventCh: make(chan ui.Event, 512), autoScroll: true,
 		statusBar: replHelpHint,
 	}
 }
@@ -142,13 +151,14 @@ func (a *App) runTUI(ctx *agentctx.Manager, ctxFile, systemPrompt string) error 
 	}
 
 	m := newReplModel(a, ctx, ctxFile, systemPrompt, header)
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	m.program = p
 	m.installUIHooks()
 
 	if logx.Enabled() {
+		ch := m.eventCh
 		logx.SetSink(func(msg string) {
-			p.Send(agentEventMsg{ev: ui.Event{Kind: ui.EvLine, Text: msg, Style: "debug"}})
+			ch <- ui.Event{Kind: ui.EvLine, Text: msg, Style: "debug"}
 		})
 		defer logx.SetSink(nil)
 	}
@@ -166,25 +176,22 @@ func (a *App) runTUI(ctx *agentctx.Manager, ctxFile, systemPrompt string) error 
 }
 
 func (m *replModel) installUIHooks() {
+	ch := m.eventCh
 	m.app.console.SetHooks(&ui.Hooks{
 		Silent: true,
 		OnEvent: func(ev ui.Event) {
-			if m.program != nil {
-				m.program.Send(agentEventMsg{ev})
-			}
+			ch <- ev
 		},
 	})
 }
 
 func (m *replModel) agentHooks() *ui.Hooks {
 	confirmIn := m.confirmIn
-	program := m.program
+	ch := m.eventCh
 	return &ui.Hooks{
 		Silent: true,
 		OnEvent: func(ev ui.Event) {
-			if program != nil {
-				program.Send(agentEventMsg{ev})
-			}
+			ch <- ev
 		},
 		Confirm: func(message string) bool {
 			resp := make(chan bool, 1)
@@ -194,48 +201,87 @@ func (m *replModel) agentHooks() *ui.Hooks {
 	}
 }
 
+func (m *replModel) listenEvents() tea.Cmd {
+	ch := m.eventCh
+	return func() tea.Msg {
+		ev, ok := <-ch
+		if !ok {
+			return agentDoneMsg{}
+		}
+		return agentEventMsg{ev}
+	}
+}
+
 func (m *replModel) Init() tea.Cmd {
-	return tea.Batch(textarea.Blink, m.tickCmd())
+	return tea.Batch(textarea.Blink, m.tickCmd(), m.listenEvents())
 }
 
 func (m *replModel) tickCmd() tea.Cmd {
 	return tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg { return tickMsg(t) })
 }
 
-func (m *replModel) appendRendered(line string) {
-	if m.history.Len() > 0 {
-		m.history.WriteByte('\n')
+func (m *replModel) pushHist(style, text string) {
+	m.histLines = append(m.histLines, histLine{style: style, text: text})
+	m.rebuildViewport()
+}
+
+func (m *replModel) styleLine(style, text string) string {
+	switch style {
+	case "section":
+		return replSecStyle.Render("• " + text)
+	case "thinking":
+		return "  " + replThinkStyle.Render(text)
+	case "output":
+		return "  " + replOutStyle.Render(text)
+	case "tool":
+		return replToolStyle.Render(text)
+	case "tool-result":
+		return replDimStyle.Render(text)
+	case "debug":
+		return replDebugStyle.Render("◦ debug  " + text)
+	case "user-label":
+		return replUserStyle.Render(text)
+	case "user":
+		return replOutStyle.Render(text)
+	case "error":
+		return replErrStyle.Render("✗ " + text)
+	case "success":
+		return replOkStyle.Render("✓ " + text)
+	case "warning":
+		return replWarnStyle.Render("! " + text)
+	case "round":
+		return replDimStyle.Render(text)
+	default:
+		return replDimStyle.Render(text)
 	}
-	m.history.WriteString(line)
-	m.vp.SetContent(m.history.String())
-	m.vp.GotoBottom()
+}
+
+func (m *replModel) rebuildViewport() {
+	var b strings.Builder
+	for i, hl := range m.histLines {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(m.styleLine(hl.style, hl.text))
+	}
+	m.vp.SetContent(b.String())
+	if m.autoScroll {
+		m.vp.GotoBottom()
+	}
 }
 
 func (m *replModel) renderEvent(ev ui.Event) {
 	switch ev.Kind {
 	case ui.EvSection:
-		m.appendRendered(replSecStyle.Render("• " + ev.Title))
+		m.pushHist("section", ev.Title)
 	case ui.EvLine:
-		switch ev.Style {
-		case "thinking":
-			m.appendRendered("  " + replThinkStyle.Render(ev.Text))
-		case "output":
-			m.appendRendered("  " + replOutStyle.Render(ev.Text))
-		case "tool":
-			m.appendRendered(replToolStyle.Render(ev.Text))
-		case "tool-result":
-			m.appendRendered(replDimStyle.Render(ev.Text))
-		case "debug":
-			m.appendRendered(replDebugStyle.Render("◦ debug  " + ev.Text))
-		default:
-			m.appendRendered(replDimStyle.Render(ev.Text))
-		}
+		m.pushHist(ev.Style, ev.Text)
 	case ui.EvError:
-		m.appendRendered(replErrStyle.Render("✗ " + ev.Text))
+		m.pushHist("error", ev.Text)
 	case ui.EvSuccess:
-		m.appendRendered(replOkStyle.Render("✓ " + ev.Text))
+		m.pushHist("success", ev.Text)
 	case ui.EvWarning:
-		m.appendRendered(replWarnStyle.Render("! " + ev.Text))
+		m.pushHist("warning", ev.Text)
 	case ui.EvStatus:
 		m.statusBar = ev.Text
 	case ui.EvSpinner:
@@ -249,9 +295,8 @@ func (m *replModel) startAgent(userInput string) tea.Cmd {
 	m.running = true
 	m.spinText = "Running…"
 	m.statusBar = "Agent running — Esc or /stop to cancel"
-	m.appendRendered("")
-	m.appendRendered(replUserStyle.Render("You"))
-	m.appendRendered(replOutStyle.Render(userInput))
+	m.pushHist("user-label", "You")
+	m.pushHist("user", userInput)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	m.agentCancel = cancel
@@ -272,7 +317,7 @@ func (m *replModel) startAgent(userInput string) tea.Cmd {
 		}
 	}()
 
-	return nil
+	return m.listenEvents()
 }
 
 func (m *replModel) cancelAgent() {
@@ -303,16 +348,16 @@ func (m *replModel) submit() (tea.Model, tea.Cmd) {
 
 	if m.running && (input == "/stop" || input == "/s") {
 		m.cancelAgent()
-		m.appendRendered(replWarnStyle.Render("Stopping…"))
+		m.pushHist("warning", "Stopping…")
 		return m, nil
 	}
 	if m.running {
-		m.appendRendered(replWarnStyle.Render("Agent is running — Esc or /stop to cancel"))
+		m.pushHist("warning", "Agent is running — Esc or /stop to cancel")
 		return m, nil
 	}
 
 	if input == "/stop" || input == "/s" {
-		m.appendRendered(replWarnStyle.Render("No task running."))
+		m.pushHist("warning", "No task running.")
 		return m, nil
 	}
 
@@ -335,6 +380,19 @@ func (m *replModel) answerConfirm(yes bool) (tea.Model, tea.Cmd) {
 		m.confirmResp = nil
 		m.confirmMsg = ""
 		m.ta.Focus()
+	}
+	return m, nil
+}
+
+func (m *replModel) scrollHistory(up bool, lines int) (tea.Model, tea.Cmd) {
+	m.autoScroll = false
+	if up {
+		m.vp.ScrollUp(lines)
+	} else {
+		m.vp.ScrollDown(lines)
+		if m.vp.AtBottom() {
+			m.autoScroll = true
+		}
 	}
 	return m, nil
 }
@@ -362,11 +420,19 @@ func (m *replModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case agentEventMsg:
 		m.renderEvent(msg.ev)
-		return m, nil
+		return m, m.listenEvents()
 
 	case agentDoneMsg:
 		m.finishAgent()
 		return m, nil
+
+	case tea.MouseMsg:
+		if msg.Type == tea.MouseWheelUp {
+			return m.scrollHistory(true, 3)
+		}
+		if msg.Type == tea.MouseWheelDown {
+			return m.scrollHistory(false, 3)
+		}
 
 	case tea.KeyMsg:
 		if m.confirmResp != nil {
@@ -379,11 +445,18 @@ func (m *replModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		switch msg.String() {
+		case "pgup", "ctrl+u":
+			return m.scrollHistory(true, m.vp.Height)
+		case "pgdown", "ctrl+d":
+			return m.scrollHistory(false, m.vp.Height)
+		}
+
 		if m.running {
 			switch msg.String() {
 			case "esc", "ctrl+c":
 				m.cancelAgent()
-				m.appendRendered(replWarnStyle.Render("Stopping…"))
+				m.pushHist("warning", "Stopping…")
 				return m, nil
 			}
 			return m, nil

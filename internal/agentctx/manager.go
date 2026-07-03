@@ -22,7 +22,7 @@ type Manager struct {
 	maxContext       int
 	runtimeInjection []llm.Message
 	provider         llm.Provider              // 供 full_compact 调用
-	tools            []map[string]any          // full_compact 的 tools schema
+	tools            []map[string]any          // agent 工具 schema（full compact 不传 tools）
 	console          *ui.Printer
 	now              func() int64
 }

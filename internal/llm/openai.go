@@ -6,12 +6,15 @@ import "strings"
 type OpenAIProvider struct{ BaseProvider }
 
 func (p *OpenAIProvider) BuildBody(messages []Message, tools []map[string]any) map[string]any {
-	return map[string]any{
+	body := map[string]any{
 		"model":    p.model,
 		"messages": p.sanitizeMessages(messages),
-		"tools":    tools,
 		"stream":   false,
 	}
+	if len(tools) > 0 {
+		body["tools"] = tools
+	}
+	return body
 }
 
 func (p *OpenAIProvider) ParseResponse(resp map[string]any) Response {

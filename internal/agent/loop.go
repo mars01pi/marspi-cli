@@ -3,6 +3,8 @@
 package agent
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -25,28 +27,38 @@ type Runner struct {
 }
 
 // Loop 运行一次完整的 agent_loop：追加用户输入，迭代调用模型与工具直至结束。
-// 对齐 mangopi 的 agent_loop。
 func (r *Runner) Loop(ctx *agentctx.Manager, ctxFilePath, userInput string) {
+	r.LoopCtx(context.Background(), ctx, ctxFilePath, userInput)
+}
+
+// LoopCtx 与 Loop 相同，但可通过 ctx 在迭代间隙取消。
+func (r *Runner) LoopCtx(runCtx context.Context, ctx *agentctx.Manager, ctxFilePath, userInput string) {
 	ctx.AppendUser(userInput)
 	tools := r.Registry.Schemas()
 	logx.Debugf("agent loop start: model=%s tools=%d", r.Provider.Model(), len(tools))
 
 	iteration := 0
 	for {
+		if err := runCtx.Err(); err != nil {
+			r.Console.Warning("Stopped.")
+			break
+		}
 		if strings.TrimSpace(r.Provider.APIKey()) == "" {
 			reportError(r.Console, "MARS_KEY is not set (required)\n  export MARS_KEY=sk-your-key")
 			break
 		}
-		// spinner 使用 \r 覆写当前行；先换行避免吃掉用户输入行上的输出。
-		fmt.Println()
 		r.Console.StartSpinner("Request...")
 		msgs := ctx.PrepareForAPI()
 		logx.Debugf("request iteration=%d messages=%d", iteration+1, len(msgs))
-		raw, err := llm.Request(r.Provider.APIURL(), r.Provider.BuildBody(msgs, tools),
+		raw, err := llm.RequestContext(runCtx, r.Provider.APIURL(), r.Provider.BuildBody(msgs, tools),
 			r.Provider.Headers(), 300*time.Second, 3)
 		r.Console.EndSpinner()
 		if err != nil {
-			reportError(r.Console, "request failed: "+err.Error())
+			if errors.Is(err, context.Canceled) {
+				r.Console.Warning("Stopped.")
+			} else {
+				reportError(r.Console, "request failed: "+err.Error())
+			}
 			break
 		}
 		resp := r.Provider.ParseResponse(raw)
@@ -81,6 +93,11 @@ func (r *Runner) Loop(ctx *agentctx.Manager, ctxFilePath, userInput string) {
 		if resp.HasToolCalls {
 			completed := false
 			for _, tc := range resp.ToolCalls {
+				if err := runCtx.Err(); err != nil {
+					r.Console.Warning("Stopped.")
+					completed = true
+					break
+				}
 				logx.Debugf("tool call: %s", tc.Name)
 				result := r.Registry.Execute(tc.Name, tc.Arguments)
 				ctx.AppendTool(tc.ID, tc.Name, result)

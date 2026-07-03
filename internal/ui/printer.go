@@ -21,6 +21,7 @@ type Printer struct {
 	stopCh      chan struct{}
 	doneCh      chan struct{}
 	stdin       *bufio.Reader
+	hooks       *Hooks
 }
 
 // Console 是进程级默认 Printer。
@@ -29,6 +30,19 @@ var Console = NewPrinter()
 // NewPrinter 创建一个 Printer。
 func NewPrinter() *Printer {
 	return &Printer{stdin: bufio.NewReader(os.Stdin)}
+}
+
+// SetHooks 配置 TUI 转发；hooks 为 nil 时恢复标准输出模式。
+func (p *Printer) SetHooks(hooks *Hooks) { p.hooks = hooks }
+
+func (p *Printer) emit(ev Event) {
+	if p.hooks != nil && p.hooks.OnEvent != nil {
+		p.hooks.OnEvent(ev)
+	}
+}
+
+func (p *Printer) stdoutEnabled() bool {
+	return p.hooks == nil || !p.hooks.Silent
 }
 
 func clearSpinnerLine() { fmt.Print("\r\033[K") }
@@ -45,17 +59,24 @@ func (p *Printer) writeLine(text string) {
 }
 
 func (p *Printer) writeLineLocked(text string) {
-	if p.running {
+	if p.running && p.stdoutEnabled() {
 		clearSpinnerLine()
 	}
-	fmt.Fprintln(os.Stdout, text)
-	if p.running {
+	if p.stdoutEnabled() {
+		fmt.Fprintln(os.Stdout, text)
+	}
+	p.emit(Event{Kind: EvLine, Text: text, Style: "dim"})
+	if p.running && p.stdoutEnabled() {
 		p.renderFrame("⠋")
 	}
 }
 
 // Section 打印一个小节标题。
 func (p *Printer) Section(title string) {
+	p.emit(Event{Kind: EvSection, Title: title})
+	if !p.stdoutEnabled() {
+		return
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.writeLineLocked("")
@@ -65,26 +86,87 @@ func (p *Printer) Section(title string) {
 // ToolCall 打印工具调用抬头。
 func (p *Printer) ToolCall(name, desc string) {
 	p.Section(i18n.T("tool.call"))
-	p.writeLine(C("› ", Grey) + C(name, Cyan) + "  " + C(desc, Grey))
+	line := C("› ", Grey) + C(name, Cyan) + "  " + C(desc, Grey)
+	p.emit(Event{Kind: EvLine, Text: "› " + name + "  " + desc, Style: "tool"})
+	if p.stdoutEnabled() {
+		p.writeLine(line)
+	}
 }
 
 // ToolResult 打印工具执行结果标记。
 func (p *Printer) ToolResult(ok bool) {
-	icon, color, key := "✓", Green, "tool.result.ok"
+	key := "tool.result.ok"
+	icon, color := "✓", Green
 	if !ok {
-		icon, color, key = "✗", Red, "tool.result.fail"
+		key, icon, color = "tool.result.fail", "✗", Red
 	}
-	p.writeLine("  " + C(icon, color) + C(i18n.T(key), Grey))
+	msg := i18n.T(key)
+	if ok {
+		p.emit(Event{Kind: EvSuccess, Text: msg})
+	} else {
+		p.emit(Event{Kind: EvError, Text: msg})
+	}
+	if !p.stdoutEnabled() {
+		return
+	}
+	p.mu.Lock()
+	p.writeLineLocked("  " + C(icon, color) + C(msg, Grey))
+	p.mu.Unlock()
+}
+
+// ToolPreview 打印工具 stdout 预览（对齐 ⎿ 前缀格式）。
+func (p *Printer) ToolPreview(lines []string) {
+	if len(lines) == 0 {
+		p.emit(Event{Kind: EvLine, Text: "⎿  (no output)", Style: "tool-result"})
+		if p.stdoutEnabled() {
+			p.mu.Lock()
+			p.writeLineLocked("  " + C("⎿  (no output)", Dim))
+			p.mu.Unlock()
+		}
+		return
+	}
+	for i, line := range lines {
+		if i == 0 {
+			p.emit(Event{Kind: EvLine, Text: "⎿  " + line, Style: "tool-result"})
+		} else {
+			p.emit(Event{Kind: EvLine, Text: "   " + line, Style: "tool-result"})
+		}
+		if !p.stdoutEnabled() {
+			continue
+		}
+		p.mu.Lock()
+		if i == 0 {
+			p.writeLineLocked("  " + C("⎿  "+line, Dim))
+		} else {
+			p.writeLineLocked("     " + C(line, Dim))
+		}
+		p.mu.Unlock()
+	}
+}
+
+// Error 打印错误消息。
+func (p *Printer) Error(msg string) {
+	p.emit(Event{Kind: EvError, Text: msg})
+	if p.stdoutEnabled() {
+		p.writeLine(C("✗ ", Red) + C(msg, Grey))
+	}
+}
+
+// Warning 打印警告消息。
+func (p *Printer) Warning(msg string) {
+	p.emit(Event{Kind: EvWarning, Text: msg})
+	if p.stdoutEnabled() {
+		p.writeLine(C("! ", Yellow) + C(msg, Grey))
+	}
 }
 
 // Success 打印成功消息。
-func (p *Printer) Success(msg string) { p.writeLine(C("✓ ", Green) + C(msg, Grey)) }
-
-// Error 打印错误消息。
-func (p *Printer) Error(msg string) { p.writeLine(C("✗ ", Red) + C(msg, Grey)) }
-
-// Warning 打印警告消息。
-func (p *Printer) Warning(msg string) { p.writeLine(C("! ", Yellow) + C(msg, Grey)) }
+func (p *Printer) Success(msg string) {
+	p.emit(Event{Kind: EvSuccess, Text: msg})
+	if p.stdoutEnabled() {
+		p.writeLine(C("✓ ", Green) + C(msg, Grey))
+	}
+}
 
 // Text 打印灰色文本。
 func (p *Printer) Text(msg string) { p.writeLine(C(msg, Grey)) }
@@ -98,7 +180,10 @@ func (p *Printer) Separator() {
 func (p *Printer) Thinking(content string) {
 	p.Section(i18n.T("llm.thinking"))
 	for _, line := range strings.Split(content, "\n") {
-		p.writeLine("  " + C(line, Grey))
+		p.emit(Event{Kind: EvLine, Text: line, Style: "thinking"})
+		if p.stdoutEnabled() {
+			p.writeLine("  " + C(line, Grey))
+		}
 	}
 }
 
@@ -106,7 +191,10 @@ func (p *Printer) Thinking(content string) {
 func (p *Printer) Output(content string) {
 	p.Section(i18n.T("llm.output"))
 	for _, line := range strings.Split(content, "\n") {
-		p.writeLine("  " + C(line, Soft))
+		p.emit(Event{Kind: EvLine, Text: line, Style: "output"})
+		if p.stdoutEnabled() {
+			p.writeLine("  " + C(line, Soft))
+		}
 	}
 }
 
@@ -134,6 +222,12 @@ func (p *Printer) TokenUsage(iteration, inTok, outTok, ctxTok, maxCtx int) {
 	if maxCtx > 0 {
 		percent = ctxTok * 100 / maxCtx
 	}
+	status := fmt.Sprintf("round %d | %s in / %s out | ctx %d%%",
+		iteration, fmtK(inTok), fmtK(outTok), percent)
+	p.emit(Event{Kind: EvStatus, Text: status})
+	if !p.stdoutEnabled() {
+		return
+	}
 	p.writeLine("")
 	p.writeLine(
 		C(fmt.Sprintf("%s: %d | %s: %s in / %s out |  ctx: ",
@@ -159,6 +253,9 @@ func (p *Printer) CompactStatus(before, after, maxCtx int, strategy string) {
 
 // PromptApply 询问用户 y/n 确认，返回是否同意。
 func (p *Printer) PromptApply(message string) bool {
+	if p.hooks != nil && p.hooks.Confirm != nil {
+		return p.hooks.Confirm(message)
+	}
 	for {
 		fmt.Printf("%s%s [y/n]: %s", Yellow, message, Reset)
 		line, err := p.stdin.ReadString('\n')
@@ -178,6 +275,10 @@ func (p *Printer) PromptApply(message string) bool {
 
 // StartSpinner 启动后台 spinner。
 func (p *Printer) StartSpinner(message string) {
+	p.emit(Event{Kind: EvSpinner, Text: message, Style: "start"})
+	if p.hooks != nil && p.hooks.Silent {
+		return
+	}
 	p.mu.Lock()
 	if p.running {
 		p.mu.Unlock()
@@ -216,6 +317,10 @@ func (p *Printer) StartSpinner(message string) {
 
 // EndSpinner 停止 spinner 并清行。
 func (p *Printer) EndSpinner() {
+	p.emit(Event{Kind: EvSpinner, Style: "stop"})
+	if p.hooks != nil && p.hooks.Silent {
+		return
+	}
 	p.mu.Lock()
 	if !p.running {
 		p.mu.Unlock()

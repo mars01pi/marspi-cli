@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/mattn/go-isatty"
 	"github.com/mars/marspi-cli/internal/agent"
 	"github.com/mars/marspi-cli/internal/agentctx"
 	"github.com/mars/marspi-cli/internal/config"
@@ -88,6 +89,24 @@ func (a *App) Run() error {
 		}
 		return ErrConfig
 	}
+
+	ctxFile := filepath.Join(a.cfg.SessionDir, "session.json")
+	ctx := agentctx.New(a.cfg.MaxContext, a.provider, a.registry.Schemas(), a.console)
+	ctx.Load(ctxFile)
+
+	systemPrompt := a.prompt.Assemble()
+	if ctx.Len() == 0 {
+		ctx.AppendSystem(systemPrompt)
+	}
+
+	if os.Getenv("MARS_PLAIN") == "1" || !isatty.IsTerminal(os.Stdin.Fd()) {
+		return a.runPlain(ctx, ctxFile, systemPrompt)
+	}
+	return a.runTUI(ctx, ctxFile, systemPrompt)
+}
+
+// runPlain 使用单行 bufio REPL（管道或非 TTY 时）。
+func (a *App) runPlain(ctx *agentctx.Manager, ctxFile, systemPrompt string) error {
 	mode := a.provider.Model()
 	if a.routed != nil {
 		mode = fmt.Sprintf("smart-routing[%d]", a.routed.TotalProviders())
@@ -98,15 +117,6 @@ func (a *App) Run() error {
 		a.console.Text("debug logging enabled (MARS_DEBUG=1)")
 	}
 	logx.Debugf("provider model=%s url=%s routing=%s", a.provider.Model(), a.provider.APIURL(), a.cfg.Routing)
-
-	ctxFile := filepath.Join(a.cfg.SessionDir, "session.json")
-	ctx := agentctx.New(a.cfg.MaxContext, a.provider, a.registry.Schemas(), a.console)
-	ctx.Load(ctxFile)
-
-	systemPrompt := a.prompt.Assemble()
-	if ctx.Len() == 0 {
-		ctx.AppendSystem(systemPrompt)
-	}
 
 	reader := bufio.NewReader(os.Stdin)
 	for {
@@ -124,7 +134,7 @@ func (a *App) Run() error {
 		if handled, quit := a.handleCommand(userInput, ctx, ctxFile, systemPrompt); quit {
 			return nil
 		} else if handled {
-			continue // 斜杠命令已处理
+			continue
 		}
 
 		logx.Debugf("user input: %q", userInput)
@@ -146,6 +156,9 @@ func (a *App) handleCommand(userInput string, ctx *agentctx.Manager, ctxFile, sy
 	switch {
 	case userInput == "/q" || userInput == "/quit":
 		return true, true
+	case userInput == "/stop" || userInput == "/s":
+		a.console.Warning("No task running (use Esc during a task in TUI mode).")
+		return true, false
 	case userInput == "/c" || userInput == "/compact":
 		if err := ctx.FullCompact(); err != nil {
 			a.console.Error(err.Error())

@@ -3,8 +3,6 @@ package tool
 import (
 	"fmt"
 	"strings"
-
-	"github.com/mars/marspi-cli/internal/ui"
 )
 
 // Execute 执行一次工具调用并回显结果，返回给模型的内容（string 或 image map）。
@@ -63,7 +61,7 @@ func (r *Registry) Execute(name string, args map[string]any) any {
 // echoResult 按 PreviewLines/PreviewWidth 截断回显工具结果。
 func (r *Registry) echoResult(t Tool, display string) {
 	if display == "" {
-		fmt.Printf("  %s⎿  (no output)%s\n", ui.Dim, ui.Reset)
+		r.console.ToolPreview(nil)
 		return
 	}
 	lines := strings.Split(display, "\n")
@@ -88,11 +86,5 @@ func (r *Registry) echoResult(t Tool, display string) {
 		}
 		preview = append(preview, fmt.Sprintf("... and %d more line%s", more, suffix))
 	}
-	for i, line := range preview {
-		if i == 0 {
-			fmt.Printf("  %s⎿  %s%s\n", ui.Dim, line, ui.Reset)
-		} else {
-			fmt.Printf("     %s%s%s\n", ui.Dim, line, ui.Reset)
-		}
-	}
+	r.console.ToolPreview(preview)
 }

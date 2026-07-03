@@ -215,5 +215,5 @@ func (r *RoutedProvider) Route(userQuery, fingerprint string) {
 		providers = r.tiers[r.defaultTier]
 	}
 	r.current = providers[0]
-	fmt.Printf("%s→ %s: %s%s\n", ui.Dim, tier, r.current.Model(), ui.Reset)
+	ui.Console.Text(fmt.Sprintf("→ %s: %s", tier, r.current.Model()))
 }

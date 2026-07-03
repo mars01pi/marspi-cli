@@ -49,12 +49,13 @@ export MARS_MODEL=deepseek-v4-flash
 | `MARS_DEBUG`          | —                          | 设为 `1` 开启调试日志（输出到 stderr）  |
 
 
-持久化目录：`<cwd>/.mangocli/`（session、memory、loops、providers.json）。
+持久化目录：`<cwd>/.marspicli/`（session、memory、loops、providers.json）。
 
 ## Smart Routing
 
 ```bash
-cp providers.json.example .mangocli/providers.json
+mkdir -p .marspicli
+cp providers.json.example .marspicli/providers.json
 # 编辑 api_key 后：
 export MARS_ROUTING=on
 ./marspi-cli

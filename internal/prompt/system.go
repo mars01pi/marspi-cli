@@ -94,7 +94,7 @@ func (s *System) environment() string {
 }
 
 func (s *System) userRules() string {
-	path := filepath.Join(s.cfg.ProjectRoot, ".mangocli", "MARS.md")
+	path := filepath.Join(s.cfg.BasePersist, "MARS.md")
 	data, err := os.ReadFile(path)
 	if err != nil || len(data) == 0 {
 		return "## User Rules\n\nNo user-defined rules.\n"

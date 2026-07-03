@@ -28,7 +28,7 @@ type Manager struct {
 func New(basePaths []string) *Manager {
 	if len(basePaths) == 0 {
 		home, _ := os.UserHomeDir()
-		basePaths = []string{filepath.Join(home, ".mangocli", "skills")}
+		basePaths = []string{filepath.Join(home, ".marspicli", "skills")}
 	}
 	m := &Manager{basePaths: basePaths, skills: map[string]*Skill{}}
 	m.load()

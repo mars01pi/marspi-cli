@@ -28,11 +28,11 @@ type Config struct {
 	SearchKey  string // MARS_SEARCH_API_KEY，web_search 用
 
 	ProjectRoot   string // 当前工作目录
-	BasePersist   string // <root>/.mangocli
-	SessionDir    string // <root>/.mangocli/session
-	MemoryDir     string // <root>/.mangocli/memory
-	LoopsDir      string // <root>/.mangocli/loops
-	ProvidersFile string // <root>/.mangocli/providers.json
+	BasePersist   string // <root>/.marspicli
+	SessionDir    string // <root>/.marspicli/session
+	MemoryDir     string // <root>/.marspicli/memory
+	LoopsDir      string // <root>/.marspicli/loops
+	ProvidersFile string // <root>/.marspicli/providers.json
 }
 
 func env(key, def string) string {
@@ -57,7 +57,7 @@ func Load() *Config {
 	if err != nil {
 		root = "."
 	}
-	base := filepath.Join(root, ".mangocli")
+	base := filepath.Join(root, ".marspicli")
 	c := &Config{
 		APIKey:     os.Getenv("MARS_KEY"),
 		APIURL:     env("MARS_API_URL", "https://api.deepseek.com"),

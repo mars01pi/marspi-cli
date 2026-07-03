@@ -9,6 +9,10 @@
 *.dylib
 marspi-cli
 
+# Local runtime data
+.marspicli/
+.mangocli/
+
 # Test binary, built with `go test -c`
 *.test
 

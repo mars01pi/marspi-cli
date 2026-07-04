@@ -8,18 +8,18 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/mattn/go-isatty"
 	"github.com/mars/marspi-cli/internal/agent"
 	"github.com/mars/marspi-cli/internal/agentctx"
 	"github.com/mars/marspi-cli/internal/config"
 	"github.com/mars/marspi-cli/internal/i18n"
-	"github.com/mars/marspi-cli/internal/logx"
 	"github.com/mars/marspi-cli/internal/llm"
+	"github.com/mars/marspi-cli/internal/logx"
 	"github.com/mars/marspi-cli/internal/memory"
 	"github.com/mars/marspi-cli/internal/prompt"
 	"github.com/mars/marspi-cli/internal/skill"
 	"github.com/mars/marspi-cli/internal/tool"
 	"github.com/mars/marspi-cli/internal/ui"
+	"github.com/mattn/go-isatty"
 )
 
 // ErrConfig 表示启动前配置校验未通过（错误信息已输出到终端）。
@@ -65,6 +65,7 @@ func NewApp(cfg *config.Config) *App {
 		Provider:   provider,
 		Registry:   registry,
 		Console:    console,
+		Events:     agent.NewEmitter(),
 		MaxContext: cfg.MaxContext,
 		MaxIter:    cfg.MaxIter,
 	}
@@ -117,6 +118,9 @@ func (a *App) runPlain(ctx *agentctx.Manager, ctxFile, systemPrompt string) erro
 		a.console.Text("debug logging enabled (MARS_DEBUG=1)")
 	}
 	logx.Debugf("provider model=%s url=%s routing=%s", a.provider.Model(), a.provider.APIURL(), a.cfg.Routing)
+
+	unsubEvents := a.runner.Events.Subscribe(agent.ConsoleSink(a.console))
+	defer unsubEvents()
 
 	reader := bufio.NewReader(os.Stdin)
 	for {

@@ -5,8 +5,6 @@ package agent
 import (
 	"context"
 	"errors"
-	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -22,6 +20,7 @@ type Runner struct {
 	Provider   llm.Provider
 	Registry   *tool.Registry
 	Console    *ui.Printer
+	Events     *Emitter
 	MaxContext int
 	MaxIter    int
 }
@@ -37,56 +36,64 @@ func (r *Runner) LoopCtx(runCtx context.Context, ctx *agentctx.Manager, ctxFileP
 	tools := r.Registry.Schemas()
 	logx.Debugf("agent loop start: model=%s tools=%d", r.Provider.Model(), len(tools))
 
+	r.emit(Event{Type: EventRunStart, UserInput: userInput})
+
 	iteration := 0
 	for {
 		if err := runCtx.Err(); err != nil {
-			r.Console.Warning("Stopped.")
+			r.emit(Event{Type: EventWarn, Text: "Stopped."})
 			break
 		}
 		if strings.TrimSpace(r.Provider.APIKey()) == "" {
-			reportError(r.Console, "MARS_KEY is not set (required)\n  export MARS_KEY=sk-your-key")
+			r.emit(Event{Type: EventError, Text: "MARS_KEY is not set (required)\n  export MARS_KEY=sk-your-key"})
 			break
 		}
-		r.Console.StartSpinner("Request...")
+
+		iteration++
+		r.emit(Event{Type: EventTurnStart, Iteration: iteration})
+		r.emit(Event{Type: EventLLMStart, Text: llmSpinnerText()})
+
 		msgs := ctx.PrepareForAPI()
-		logx.Debugf("request iteration=%d messages=%d", iteration+1, len(msgs))
+		logx.Debugf("request iteration=%d messages=%d", iteration, len(msgs))
 		raw, err := llm.RequestContext(runCtx, r.Provider.APIURL(), r.Provider.BuildBody(msgs, tools),
 			r.Provider.Headers(), 300*time.Second, 3)
-		r.Console.EndSpinner()
+
 		if err != nil {
+			r.emit(Event{Type: EventLLMEnd, Iteration: iteration, MaxContext: r.MaxContext,
+				ContextTokens: ctx.TotalTokens()})
 			if errors.Is(err, context.Canceled) {
-				r.Console.Warning("Stopped.")
+				r.emit(Event{Type: EventWarn, Text: "Stopped."})
 			} else {
-				reportError(r.Console, "request failed: "+err.Error())
+				r.emit(Event{Type: EventError, Text: "request failed: " + err.Error()})
 			}
 			break
 		}
+
 		resp := r.Provider.ParseResponse(raw)
+		r.emit(Event{Type: EventLLMEnd, Iteration: iteration, Usage: resp.Usage,
+			ContextTokens: ctx.TotalTokens(), MaxContext: r.MaxContext})
+
 		if resp.FinishReason == "error" {
-			reportError(r.Console, resp.Content)
+			r.emit(Event{Type: EventError, Text: resp.Content})
 			break
 		}
+
 		ctx.AppendAssistant(resp.RawMessage)
 
-		iteration++
-		r.Console.TokenUsage(iteration, resp.Usage.PromptTokens, resp.Usage.CompletionTokens,
-			ctx.TotalTokens(), r.MaxContext)
-		if r.Console.TUIMode() {
-			r.Console.RoundMarker(iteration)
-		}
-
-		if resp.ReasoningContent != "" {
-			r.Console.Thinking(resp.ReasoningContent)
-		}
-		if resp.Content != "" && !hasCompletion(resp.ToolCalls) {
-			r.Console.Output(resp.Content)
-		}
+		// 非流式：start + end 成对，与流式事件序列兼容。
+		r.emit(Event{Type: EventMessageStart, Iteration: iteration, HasToolCalls: resp.HasToolCalls})
+		r.emit(Event{
+			Type:         EventMessageEnd,
+			Iteration:    iteration,
+			Content:      resp.Content,
+			Reasoning:    resp.ReasoningContent,
+			FinishReason: resp.FinishReason,
+			HasToolCalls: resp.HasToolCalls,
+		})
+		r.emit(Event{Type: EventTurnEnd, Iteration: iteration})
 
 		if resp.Content == "" && resp.ReasoningContent == "" && !resp.HasToolCalls {
-			reportError(r.Console, fmt.Sprintf(
-				"empty model response (finish_reason=%q, model=%s)",
-				resp.FinishReason, r.Provider.Model(),
-			))
+			r.emit(Event{Type: EventError, Text: formatEmptyResponse(resp, r.Provider.Model())})
 			break
 		}
 
@@ -97,16 +104,22 @@ func (r *Runner) LoopCtx(runCtx context.Context, ctx *agentctx.Manager, ctxFileP
 			completed := false
 			for _, tc := range resp.ToolCalls {
 				if err := runCtx.Err(); err != nil {
-					r.Console.Warning("Stopped.")
+					r.emit(Event{Type: EventWarn, Text: "Stopped."})
 					completed = true
 					break
 				}
 				logx.Debugf("tool call: %s", tc.Name)
+				r.emit(Event{Type: EventToolStart, ToolName: tc.Name, ToolCallID: tc.ID, ToolArgs: tc.Arguments})
 				result := r.Registry.Execute(tc.Name, tc.Arguments)
+				ok := toolResultOK(result)
+				r.emit(Event{Type: EventToolEnd, ToolName: tc.Name, ToolCallID: tc.ID, ToolOK: ok})
 				ctx.AppendTool(tc.ID, tc.Name, result)
 				if tc.Name == "attempt_completion" {
 					if s, ok := result.(string); ok && s != "" {
-						r.Console.Output(s)
+						r.emit(Event{
+							Type:    EventMessageEnd,
+							Content: s,
+						})
 					}
 					completed = true
 					break
@@ -123,29 +136,26 @@ func (r *Runner) LoopCtx(runCtx context.Context, ctx *agentctx.Manager, ctxFileP
 			break
 		}
 	}
+
+	r.emit(Event{Type: EventRunEnd})
 	if ctxFilePath != "" {
 		_ = ctx.Save(ctxFilePath)
 	}
 }
 
-func hasCompletion(calls []llm.ToolCall) bool {
-	for _, tc := range calls {
-		if tc.Name == "attempt_completion" {
-			return true
-		}
+func (r *Runner) emit(ev Event) {
+	if r.Events != nil {
+		r.Events.Emit(ev)
 	}
-	return false
 }
 
-// reportError 输出错误；同时写 stderr，避免 spinner 在非 TTY 下吞掉输出。
-func reportError(console *ui.Printer, msg string) {
-	first, rest, _ := strings.Cut(msg, "\n")
-	console.Error(first)
-	if rest != "" {
-		console.Text(rest)
+func formatEmptyResponse(resp llm.Response, model string) string {
+	return "empty model response (finish_reason=" + resp.FinishReason + ", model=" + model + ")"
+}
+
+func toolResultOK(result any) bool {
+	if s, ok := result.(string); ok {
+		return !strings.HasPrefix(s, "error:") && !strings.HasPrefix(s, "run tool ")
 	}
-	fmt.Fprintln(os.Stderr, ui.Red+"✗ "+first+ui.Reset)
-	if rest != "" {
-		fmt.Fprintln(os.Stderr, ui.Dim+rest+ui.Reset)
-	}
+	return true
 }

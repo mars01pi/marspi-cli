@@ -308,6 +308,7 @@ func (m *replModel) startAgent(userInput string) tea.Cmd {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.agentCancel = cancel
 
+	unsubAgent := m.app.runner.Events.Subscribe(agentTUIHandler(m.eventCh))
 	m.app.console.SetHooks(m.agentHooks())
 
 	normal := userInput + ", Current date: " + nowStr()
@@ -316,6 +317,7 @@ func (m *replModel) startAgent(userInput string) tea.Cmd {
 	}
 
 	go func() {
+		defer unsubAgent()
 		m.app.runner.LoopCtx(ctx, m.ctx, m.ctxFile, normal)
 		m.ctx.ClearRuntimeInjections()
 		_ = m.ctx.Save(m.ctxFile)
@@ -334,9 +336,11 @@ func (m *replModel) startLoop(input, goal string) (tea.Model, tea.Cmd) {
 	m.pushHist("success", "🎯 Loop: "+goal)
 	m.pushUserInput(input)
 
+	unsubAgent := m.app.runner.Events.Subscribe(agentTUIHandler(m.eventCh))
 	m.app.console.SetHooks(m.uiHooks())
 
 	go func() {
+		defer unsubAgent()
 		m.app.runLoopEngine(goal, 5)
 		if m.program != nil {
 			m.program.Send(agentDoneMsg{})

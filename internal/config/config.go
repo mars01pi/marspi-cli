@@ -25,6 +25,7 @@ type Config struct {
 	MaxIter    int    // MARS_MAX_ITER，单轮 agent_loop 的最大迭代
 	Lang       string // MARS_LANG: en | zh
 	Routing    string // MARS_ROUTING: on | off
+	Stream     bool   // MARS_STREAM: 1/on 启用 SSE 流式（默认开）
 	SearchKey  string // MARS_SEARCH_API_KEY，web_search 用
 
 	ProjectRoot   string // 当前工作目录
@@ -51,6 +52,21 @@ func envInt(key string, def int) int {
 	return def
 }
 
+func envBool(key string, def bool) bool {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv(key)))
+	if v == "" {
+		return def
+	}
+	switch v {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return def
+	}
+}
+
 // Load 从环境变量与当前工作目录构建 Config。
 func Load() *Config {
 	root, err := os.Getwd()
@@ -66,6 +82,7 @@ func Load() *Config {
 		MaxIter:    envInt("MARS_MAX_ITER", 100),
 		Lang:       normLang(env("MARS_LANG", "en")),
 		Routing:    lower(env("MARS_ROUTING", "off")),
+		Stream:     envBool("MARS_STREAM", true),
 		SearchKey:  os.Getenv("MARS_SEARCH_API_KEY"),
 
 		ProjectRoot:   root,

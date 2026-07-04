@@ -60,6 +60,12 @@ type histLine struct {
 	text  string
 }
 
+type liveStream struct {
+	style string
+	title string
+	text  string
+}
+
 type replModel struct {
 	app          *App
 	program      *tea.Program
@@ -71,6 +77,8 @@ type replModel struct {
 	vp        viewport.Model
 	ta        textarea.Model
 	histLines []histLine
+	live      map[string]*liveStream
+	liveOrder []string // 流式块首次出现的顺序
 	width     int
 	height    int
 
@@ -88,6 +96,8 @@ type replModel struct {
 
 	statusBar string
 	quitting  bool
+
+	streamDirty bool // 流式块文本变更，待刷新 viewport
 }
 
 func newReplModel(a *App, ctx *agentctx.Manager, ctxFile, systemPrompt, header string) *replModel {
@@ -110,7 +120,7 @@ func newReplModel(a *App, ctx *agentctx.Manager, ctxFile, systemPrompt, header s
 	return &replModel{
 		app: a, ctx: ctx, ctxFile: ctxFile, systemPrompt: systemPrompt, header: header,
 		vp: vp, ta: ta, confirmIn: make(chan confirmRequestMsg),
-		eventCh: make(chan ui.Event, 512), autoScroll: true,
+		eventCh: make(chan ui.Event, 4096), autoScroll: true, live: map[string]*liveStream{},
 		statusBar: replHelpHint,
 	}
 }
@@ -366,9 +376,103 @@ func (m *replModel) rebuildViewport() {
 		}
 		b.WriteString(m.styleLine(hl.style, hl.text))
 	}
+	for _, id := range m.liveOrder {
+		ls := m.live[id]
+		if ls == nil || ls.text == "" {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteByte('\n')
+		}
+		if ls.title != "" {
+			b.WriteString(m.styleLine("section", ls.title))
+			b.WriteByte('\n')
+		}
+		b.WriteString(m.styleLine(ls.style, ls.text))
+	}
 	m.vp.SetContent(b.String())
 	if m.autoScroll {
 		m.vp.GotoBottom()
+	}
+}
+
+func (m *replModel) trackLiveStream(id string) {
+	for _, existing := range m.liveOrder {
+		if existing == id {
+			return
+		}
+	}
+	m.liveOrder = append(m.liveOrder, id)
+}
+
+func (m *replModel) untrackLiveStream(id string) {
+	for i, existing := range m.liveOrder {
+		if existing == id {
+			m.liveOrder = append(m.liveOrder[:i], m.liveOrder[i+1:]...)
+			return
+		}
+	}
+}
+
+func (m *replModel) applyStreamDelta(ev ui.Event) {
+	if m.live == nil {
+		m.live = map[string]*liveStream{}
+	}
+	ls, ok := m.live[ev.StreamID]
+	if !ok {
+		ls = &liveStream{style: ev.Style, title: ev.Title}
+		m.live[ev.StreamID] = ls
+		m.trackLiveStream(ev.StreamID)
+	}
+	// Delta 已是累积全文快照，直接替换，避免 append 与 Builder 并发读写问题
+	if ev.Text == ls.text {
+		return
+	}
+	ls.text = ev.Text
+	m.streamDirty = true
+	if m.running && m.spinText != "" {
+		m.spinText = ""
+	}
+}
+
+func (m *replModel) refreshStreamViewport() {
+	if !m.streamDirty {
+		return
+	}
+	m.streamDirty = false
+	m.rebuildViewport()
+}
+
+func (m *replModel) flushStream(ev ui.Event) {
+	ls := m.live[ev.StreamID]
+	if ls == nil {
+		return
+	}
+	if ls.title != "" {
+		m.histLines = append(m.histLines, histLine{style: "section", text: ls.title})
+	}
+	text := ls.text
+	if text != "" {
+		for _, line := range strings.Split(text, "\n") {
+			m.histLines = append(m.histLines, histLine{style: ls.style, text: line})
+		}
+	}
+	delete(m.live, ev.StreamID)
+	m.untrackLiveStream(ev.StreamID)
+	m.streamDirty = false
+	m.rebuildViewport()
+}
+
+func (m *replModel) drainAgentEvents(first ui.Event) tea.Cmd {
+	m.renderEvent(first)
+	for {
+		select {
+		case ev := <-m.eventCh:
+			m.renderEvent(ev)
+		default:
+			m.refreshStreamViewport()
+			return m.listenEvents()
+		}
 	}
 }
 
@@ -378,6 +482,10 @@ func (m *replModel) renderEvent(ev ui.Event) {
 		m.pushHist("section", ev.Title)
 	case ui.EvLine:
 		m.pushHist(ev.Style, ev.Text)
+	case ui.EvStreamDelta:
+		m.applyStreamDelta(ev)
+	case ui.EvStreamEnd:
+		m.flushStream(ev)
 	case ui.EvError:
 		m.pushHist("error", ev.Text)
 	case ui.EvSuccess:
@@ -389,6 +497,8 @@ func (m *replModel) renderEvent(ev ui.Event) {
 	case ui.EvSpinner:
 		if ev.Style == "start" {
 			m.spinText = ev.Text
+		} else {
+			m.spinText = ""
 		}
 	}
 }
@@ -454,6 +564,9 @@ func (m *replModel) finishAgent() {
 	m.running = false
 	m.spinText = ""
 	m.agentCancel = nil
+	m.live = map[string]*liveStream{}
+	m.liveOrder = nil
+	m.streamDirty = false
 	m.statusBar = replHelpHint
 	m.installUIHooks()
 }
@@ -563,6 +676,7 @@ func (m *replModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.running && m.spinText != "" {
 			m.spinIdx++
 		}
+		m.refreshStreamViewport()
 		return m, m.tickCmd()
 
 	case confirmRequestMsg:
@@ -570,8 +684,7 @@ func (m *replModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case agentEventMsg:
-		m.renderEvent(msg.ev)
-		return m, m.listenEvents()
+		return m, m.drainAgentEvents(msg.ev)
 
 	case agentDoneMsg:
 		m.finishAgent()

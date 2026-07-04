@@ -24,6 +24,7 @@ func mapAgentEvent(ev agent.Event) ui.AgentEvent {
 		Content:       ev.Content,
 		Reasoning:     ev.Reasoning,
 		HasToolCalls:  ev.HasToolCalls,
+		Streamed:      ev.Streamed,
 		Delta:         ev.Delta,
 		Text:          ev.Text,
 	}

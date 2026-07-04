@@ -54,7 +54,7 @@ type Event struct {
 	FinishReason string
 	HasToolCalls bool
 	DeltaField   DeltaField
-	Delta        string
+	Delta        string // message_delta：截至当前的累积全文（非增量片段）
 
 	ToolName   string
 	ToolCallID string
@@ -62,6 +62,9 @@ type Event struct {
 	ToolOK     bool
 
 	Text string
+
+	// message_end：正文已通过 delta 输出，订阅方勿重复渲染全文
+	Streamed bool
 }
 
 // Handler 处理单条 agent 事件。

@@ -5,20 +5,32 @@ import (
 	"os"
 	"strings"
 
+	"github.com/mars/marspi-cli/internal/i18n"
 	"github.com/mars/marspi-cli/internal/ui"
 )
+
+type consoleStreamState struct {
+	spinnerStopped bool
+	thinkingOpen   bool
+	outputOpen     bool
+	thinkingLen    int
+	outputLen      int
+}
+
+func (s *consoleStreamState) reset() {
+	*s = consoleStreamState{}
+}
 
 // ConsoleSink 将 agent 事件渲染到 Printer（plain REPL / 非 TUI 模式）。
 func ConsoleSink(p *ui.Printer) Handler {
 	if p == nil {
 		return func(Event) {}
 	}
+	var stream consoleStreamState
 	return func(ev Event) {
 		switch ev.Type {
 		case EventRunStart:
-			// 用户输入由 REPL 自行打印
 		case EventRunEnd:
-			// no-op
 		case EventTurnStart:
 			if !p.TUIMode() {
 				p.RoundMarker(ev.Iteration)
@@ -28,13 +40,24 @@ func ConsoleSink(p *ui.Printer) Handler {
 			p.StartSpinner(ev.Text)
 		case EventLLMEnd:
 			p.EndSpinner()
+			stream.spinnerStopped = true
 			p.TokenUsage(ev.Iteration, ev.Usage.PromptTokens, ev.Usage.CompletionTokens,
 				ev.ContextTokens, ev.MaxContext)
 		case EventMessageStart:
-			// 流式阶段：此处可显示占位；非流式跳过
+			stream.reset()
 		case EventMessageDelta:
-			// 流式阶段：ConsoleSink 可逐行刷新；当前 loop 不 emit
+			if p.TUIMode() {
+				return
+			}
+			stream.onDelta(p, ev)
 		case EventMessageEnd:
+			if p.TUIMode() {
+				return
+			}
+			if ev.Streamed {
+				stream.finishPlain(p)
+				return
+			}
 			if ev.Reasoning != "" {
 				p.Thinking(ev.Reasoning)
 			}
@@ -42,7 +65,6 @@ func ConsoleSink(p *ui.Printer) Handler {
 				p.Output(ev.Content)
 			}
 		case EventToolStart, EventToolUpdate, EventToolEnd:
-			// 工具细节仍由 tool.Registry → Printer 输出
 		case EventWarn:
 			p.Warning(ev.Text)
 		case EventError:
@@ -51,7 +73,46 @@ func ConsoleSink(p *ui.Printer) Handler {
 	}
 }
 
-// reportError 输出错误；同时写 stderr，避免 spinner 在非 TTY 下吞掉输出。
+func (s *consoleStreamState) onDelta(p *ui.Printer, ev Event) {
+	if !s.spinnerStopped {
+		p.EndSpinner()
+		s.spinnerStopped = true
+	}
+	switch ev.DeltaField {
+	case DeltaReasoning:
+		if !s.thinkingOpen {
+			s.thinkingOpen = true
+			p.Section(i18n.T("llm.thinking"))
+		}
+		if n := len(ev.Delta); n > s.thinkingLen {
+			streamPrint(p, "  "+ui.Dim+ev.Delta[s.thinkingLen:]+ui.Reset)
+			s.thinkingLen = n
+		}
+	case DeltaContent:
+		if !s.outputOpen {
+			s.outputOpen = true
+			p.Section(i18n.T("llm.output"))
+		}
+		if n := len(ev.Delta); n > s.outputLen {
+			streamPrint(p, "  "+ui.Soft+ev.Delta[s.outputLen:]+ui.Reset)
+			s.outputLen = n
+		}
+	}
+}
+
+func (s *consoleStreamState) finishPlain(p *ui.Printer) {
+	if s.thinkingOpen || s.outputOpen {
+		streamPrint(p, "")
+	}
+	s.reset()
+}
+
+func streamPrint(p *ui.Printer, text string) {
+	if !p.TUIMode() {
+		fmt.Fprint(os.Stdout, text)
+	}
+}
+
 func reportError(console *ui.Printer, msg string) {
 	first, rest, _ := strings.Cut(msg, "\n")
 	console.Error(first)
@@ -64,5 +125,4 @@ func reportError(console *ui.Printer, msg string) {
 	}
 }
 
-// llmSpinnerText 返回 LLM 请求 spinner 文案。
 func llmSpinnerText() string { return "Request..." }

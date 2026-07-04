@@ -68,6 +68,7 @@ func NewApp(cfg *config.Config) *App {
 		Events:     agent.NewEmitter(),
 		MaxContext: cfg.MaxContext,
 		MaxIter:    cfg.MaxIter,
+		Stream:     cfg.Stream,
 	}
 
 	return &App{

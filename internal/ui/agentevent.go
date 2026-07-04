@@ -41,10 +41,20 @@ type AgentEvent struct {
 	Content      string
 	Reasoning    string
 	HasToolCalls bool
+	Streamed     bool
 	DeltaField   string // "content" | "reasoning"
 	Delta        string
 
 	Text string
+}
+
+func streamID(iteration int, field string) string {
+	// reasoning 固定排在 content 前（显示顺序），与字典序无关
+	rank := "1"
+	if field == "reasoning" {
+		rank = "0"
+	}
+	return fmt.Sprintf("%d-%s-%s", iteration, rank, field)
 }
 
 // RenderAgentEvent 将 agent 镜像事件转为 TUI ui.Event 并写入 channel。
@@ -53,10 +63,7 @@ func RenderAgentEvent(ch chan<- Event, ev AgentEvent) {
 		return
 	}
 	send := func(e Event) {
-		select {
-		case ch <- e:
-		default:
-		}
+		ch <- e
 	}
 	switch ev.Type {
 	case AgentRunStart, AgentRunEnd:
@@ -75,18 +82,26 @@ func RenderAgentEvent(ch chan<- Event, ev AgentEvent) {
 	case AgentMessageStart:
 	case AgentMessageDelta:
 		style := "output"
+		title := i18n.T("llm.output")
 		if ev.DeltaField == "reasoning" {
 			style = "thinking"
+			title = i18n.T("llm.thinking")
 		}
-		send(Event{Kind: EvLine, Text: ev.Delta, Style: style})
+		id := streamID(ev.Iteration, ev.DeltaField)
+		send(Event{Kind: EvStreamDelta, StreamID: id, Text: ev.Delta, Style: style, Title: title})
 	case AgentMessageEnd:
+		if ev.Streamed {
+			if ev.Reasoning != "" {
+				send(Event{Kind: EvStreamEnd, StreamID: streamID(ev.Iteration, "reasoning"), Style: "thinking", Title: i18n.T("llm.thinking")})
+			}
+			if ev.Content != "" && !ev.HasToolCalls {
+				send(Event{Kind: EvStreamEnd, StreamID: streamID(ev.Iteration, "content"), Style: "output", Title: i18n.T("llm.output")})
+			}
+			return
+		}
 		if ev.Reasoning != "" {
 			send(Event{Kind: EvSection, Title: i18n.T("llm.thinking")})
-			lines := strings.Split(ev.Reasoning, "\n")
-			if len(lines) > 30 {
-				lines = append(lines[:30], fmt.Sprintf("… (%d more lines)", len(lines)-30))
-			}
-			for _, line := range lines {
+			for _, line := range truncateLines(strings.Split(ev.Reasoning, "\n"), 30) {
 				send(Event{Kind: EvLine, Text: line, Style: "thinking"})
 			}
 		}
@@ -102,4 +117,11 @@ func RenderAgentEvent(ch chan<- Event, ev AgentEvent) {
 	case AgentError:
 		send(Event{Kind: EvError, Text: ev.Text})
 	}
+}
+
+func truncateLines(lines []string, max int) []string {
+	if len(lines) <= max {
+		return lines
+	}
+	return append(lines[:max], fmt.Sprintf("… (%d more lines)", len(lines)-max))
 }

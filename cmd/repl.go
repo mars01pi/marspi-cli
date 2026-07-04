@@ -40,7 +40,10 @@ var (
 	replSpinStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("208"))
 	replBarStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Background(lipgloss.Color("235"))
 	replBoxStyle   = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240"))
+	replConfirmBoxStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("214")).Padding(0, 1)
 )
+
+const replConfirmPanelRows = 4
 
 var replSpinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
@@ -131,12 +134,101 @@ func (m *replModel) adjustInputHeight() {
 	m.resizeViewport()
 }
 
+func (m *replModel) inConfirm() bool { return m.confirmResp != nil }
+
+func (m *replModel) beginConfirm(message string, resp chan bool) {
+	m.confirmMsg = message
+	m.confirmResp = resp
+	m.ta.Reset()
+	m.ta.SetHeight(replInputMinRows)
+	m.ta.SetWidth(m.width - 4)
+	m.ta.Prompt = "? "
+	m.ta.Placeholder = "y or n"
+	m.ta.Focus()
+	m.statusBar = "Confirm · Y/Enter allow · N/Esc deny"
+	m.pushHist("confirm", message)
+	m.resizeViewport()
+}
+
+func (m *replModel) endConfirm(restoreStatus bool) {
+	m.confirmMsg = ""
+	m.confirmResp = nil
+	m.ta.Reset()
+	m.ta.SetHeight(replInputMinRows)
+	m.ta.Prompt = "❯ "
+	m.ta.Placeholder = "Message…  Enter send · Shift+Enter newline"
+	m.ta.Focus()
+	if restoreStatus {
+		if m.running {
+			m.statusBar = "Agent running — Esc or /stop to cancel"
+		} else {
+			m.statusBar = replHelpHint
+		}
+	}
+	m.resizeViewport()
+}
+
+func (m *replModel) handleConfirmSubmit() (tea.Model, tea.Cmd) {
+	input := strings.TrimSpace(strings.ToLower(m.ta.Value()))
+	m.ta.Reset()
+	switch input {
+	case "y", "yes":
+		return m.answerConfirm(true)
+	case "n", "no":
+		return m.answerConfirm(false)
+	default:
+		m.statusBar = "Type y or n, then Enter"
+		return m, nil
+	}
+}
+
+func wrapConfirmText(text string, width int) string {
+	if width < 20 {
+		width = 20
+	}
+	words := strings.Fields(text)
+	if len(words) == 0 {
+		return text
+	}
+	var lines []string
+	var line strings.Builder
+	for _, w := range words {
+		if line.Len() == 0 {
+			line.WriteString(w)
+			continue
+		}
+		if line.Len()+1+len(w) > width {
+			lines = append(lines, line.String())
+			line.Reset()
+			line.WriteString(w)
+		} else {
+			line.WriteByte(' ')
+			line.WriteString(w)
+		}
+	}
+	if line.Len() > 0 {
+		lines = append(lines, line.String())
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m *replModel) renderConfirmPanel() string {
+	title := replWarnStyle.Bold(true).Render("⚠  Confirm action")
+	body := replDimStyle.Render(wrapConfirmText(m.confirmMsg, m.width-8))
+	hint := replDimStyle.Render("  Y / Enter = allow    N / Esc = deny")
+	inner := title + "\n" + body + "\n" + hint
+	return replConfirmBoxStyle.Width(m.width - 2).Render(inner)
+}
+
 func (m *replModel) resizeViewport() {
 	if m.width == 0 || m.height == 0 {
 		return
 	}
 	// header(1) + input border(2) + status(1) + gaps(2)
 	footer := m.inputLineCount() + replStatusRows + 5
+	if m.inConfirm() {
+		footer += replConfirmPanelRows
+	}
 	vpH := m.height - footer
 	if vpH < 4 {
 		vpH = 4
@@ -259,6 +351,8 @@ func (m *replModel) styleLine(style, text string) string {
 		return replWarnStyle.Render("! " + text)
 	case "round":
 		return replDimStyle.Render(text)
+	case "confirm":
+		return replWarnStyle.Render("? " + text)
 	default:
 		return replDimStyle.Render(text)
 	}
@@ -366,7 +460,7 @@ func (m *replModel) finishAgent() {
 
 func (m *replModel) submit() (tea.Model, tea.Cmd) {
 	if m.confirmResp != nil {
-		return m, nil
+		return m.handleConfirmSubmit()
 	}
 	input := strings.TrimSpace(m.ta.Value())
 	if input == "" {
@@ -415,10 +509,14 @@ func (m *replModel) submit() (tea.Model, tea.Cmd) {
 
 func (m *replModel) answerConfirm(yes bool) (tea.Model, tea.Cmd) {
 	if m.confirmResp != nil {
-		m.confirmResp <- yes
-		m.confirmResp = nil
-		m.confirmMsg = ""
-		m.ta.Focus()
+		resp := m.confirmResp
+		m.endConfirm(true)
+		resp <- yes
+		if yes {
+			m.pushHist("success", "Confirmed")
+		} else {
+			m.pushHist("warning", "Declined")
+		}
 	}
 	return m, nil
 }
@@ -468,9 +566,7 @@ func (m *replModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.tickCmd()
 
 	case confirmRequestMsg:
-		m.confirmMsg = msg.message
-		m.confirmResp = msg.resp
-		m.ta.Blur()
+		m.beginConfirm(msg.message, msg.resp)
 		return m, nil
 
 	case agentEventMsg:
@@ -492,12 +588,18 @@ func (m *replModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		if m.confirmResp != nil {
 			switch strings.ToLower(msg.String()) {
-			case "y", "enter":
+			case "y":
 				return m.answerConfirm(true)
-			case "n", "esc":
+			case "n":
+				return m.answerConfirm(false)
+			case "enter":
+				return m.handleConfirmSubmit()
+			case "esc":
 				return m.answerConfirm(false)
 			}
-			return m, nil
+			var cmd tea.Cmd
+			m.ta, cmd = m.ta.Update(msg)
+			return m, cmd
 		}
 
 		switch msg.String() {
@@ -545,8 +647,11 @@ func (m *replModel) View() string {
 	b.WriteString(m.vp.View())
 	b.WriteString("\n")
 
-	if m.confirmMsg != "" {
-		b.WriteString(replWarnStyle.Render(m.confirmMsg + "  [y/n]"))
+	if m.inConfirm() {
+		b.WriteString(m.renderConfirmPanel())
+		b.WriteString("\n")
+		inputBox := replBoxStyle.BorderForeground(lipgloss.Color("214")).Width(m.width - 2)
+		b.WriteString(inputBox.Render(m.ta.View()))
 		b.WriteString("\n")
 	} else {
 		b.WriteString(replBoxStyle.Width(m.width - 2).Render(m.ta.View()))

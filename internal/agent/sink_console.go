@@ -64,7 +64,23 @@ func ConsoleSink(p *ui.Printer) Handler {
 			if ev.Content != "" && !ev.HasToolCalls {
 				p.Output(ev.Content)
 			}
-		case EventToolStart, EventToolUpdate, EventToolEnd:
+		case EventToolStart:
+			if p.TUIMode() {
+				return
+			}
+			renderToolStartPlain(p, ev)
+		case EventToolUpdate:
+			if p.TUIMode() {
+				return
+			}
+			if ev.Text != "" {
+				p.StartSpinner(ev.Text)
+			}
+		case EventToolEnd:
+			if p.TUIMode() {
+				return
+			}
+			renderToolEndPlain(p, ev)
 		case EventWarn:
 			p.Warning(ev.Text)
 		case EventError:
@@ -126,3 +142,39 @@ func reportError(console *ui.Printer, msg string) {
 }
 
 func llmSpinnerText() string { return "Request..." }
+
+func renderToolStartPlain(p *ui.Printer, ev Event) {
+	p.Section(i18n.T("tool.call"))
+	line := ui.C("› ", ui.Grey) + ui.C(ev.ToolName, ui.Cyan)
+	if ev.ToolPreview != "" {
+		line += "  " + ui.C(ev.ToolPreview, ui.Grey)
+	}
+	p.Text(line)
+}
+
+func renderToolEndPlain(p *ui.Printer, ev Event) {
+	renderToolPreviewPlain(p, ev.ToolResultLines)
+	if ev.ToolDenied {
+		p.Warning(i18n.T("tool.denied"))
+		return
+	}
+	if ev.ToolOK {
+		p.Success(i18n.T("tool.result.ok"))
+	} else {
+		p.Error(i18n.T("tool.result.fail"))
+	}
+}
+
+func renderToolPreviewPlain(p *ui.Printer, lines []string) {
+	if len(lines) == 0 {
+		p.Text("  " + ui.C("⎿  (no output)", ui.Dim))
+		return
+	}
+	for i, line := range lines {
+		if i == 0 {
+			p.Text("  " + ui.C("⎿  "+line, ui.Dim))
+		} else {
+			p.Text("     " + ui.C(line, ui.Dim))
+		}
+	}
+}

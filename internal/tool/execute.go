@@ -5,12 +5,27 @@ import (
 	"strings"
 )
 
+// RunMeta 是工具执行的展示元数据，供 agent 事件层使用。
+type RunMeta struct {
+	Success      bool
+	Denied       bool
+	PreviewLines []string
+}
+
 // Execute 执行一次工具调用并回显结果，返回给模型的内容（string 或 image map）。
-// 对齐 mangopi 的 run_tool。
+// 对齐 mangopi 的 run_tool。Plain 非 agent 场景仍可使用。
 func (r *Registry) Execute(name string, args map[string]any) any {
+	content, meta := r.ExecuteQuiet(name, args)
+	r.renderResult(name, args, content, meta)
+	return content
+}
+
+// ExecuteQuiet 执行工具但不输出展示（由 agent 事件 / ConsoleSink 负责渲染）。
+func (r *Registry) ExecuteQuiet(name string, args map[string]any) (content any, meta RunMeta) {
 	t, ok := r.Get(name)
 	if !ok {
-		return "run tool " + name + " error: unknown tool"
+		msg := "run tool " + name + " error: unknown tool"
+		return msg, RunMeta{Success: false, PreviewLines: []string{msg}}
 	}
 
 	defer func() {
@@ -19,10 +34,9 @@ func (r *Registry) Execute(name string, args map[string]any) any {
 		}
 	}()
 
-	r.console.ToolCall(t.Name(), t.Preview(args))
 	t.Before(args)
 	if !t.Confirm(args) {
-		return "error: User denied action"
+		return "error: User denied action", RunMeta{Denied: true}
 	}
 	if t.UseSpinner() {
 		r.console.StartSpinner("Running...")
@@ -32,37 +46,54 @@ func (r *Registry) Execute(name string, args map[string]any) any {
 		r.console.EndSpinner()
 	}
 
-	content := result.Content
-	display := ""
+	display := formatResultDisplay(result.Content)
+	return result.Content, RunMeta{
+		Success:      result.Success,
+		PreviewLines: FormatResultPreview(t, display),
+	}
+}
+
+func (r *Registry) renderResult(name string, args map[string]any, content any, meta RunMeta) {
+	t, ok := r.Get(name)
+	if !ok {
+		return
+	}
+	r.console.ToolCall(t.Name(), t.Preview(args))
+	if meta.Denied {
+		r.console.ToolResult(false)
+		return
+	}
+	if len(meta.PreviewLines) == 0 {
+		r.console.ToolPreview(nil)
+	} else {
+		r.console.ToolPreview(meta.PreviewLines)
+	}
+	r.console.ToolResult(meta.Success)
+}
+
+func formatResultDisplay(content any) string {
 	switch v := content.(type) {
 	case map[string]any:
 		if v["type"] == "image" {
 			if s, ok := v["text"].(string); ok {
-				display = s
-			} else {
-				display = "[image]"
+				return s
 			}
-		} else {
-			display = fmt.Sprintf("%v", v)
+			return "[image]"
 		}
+		return fmt.Sprintf("%v", v)
 	case nil:
-		display = ""
+		return ""
 	case string:
-		display = v
+		return v
 	default:
-		display = fmt.Sprintf("%v", v)
+		return fmt.Sprintf("%v", v)
 	}
-
-	r.echoResult(t, display)
-	r.console.ToolResult(result.Success)
-	return content
 }
 
-// echoResult 按 PreviewLines/PreviewWidth 截断回显工具结果。
-func (r *Registry) echoResult(t Tool, display string) {
+// FormatResultPreview 按工具截断规则生成结果预览行（对齐 echoResult / Printer.ToolPreview）。
+func FormatResultPreview(t Tool, display string) []string {
 	if display == "" {
-		r.console.ToolPreview(nil)
-		return
+		return nil
 	}
 	lines := strings.Split(display, "\n")
 	limit := t.PreviewLines()
@@ -86,5 +117,5 @@ func (r *Registry) echoResult(t Tool, display string) {
 		}
 		preview = append(preview, fmt.Sprintf("... and %d more line%s", more, suffix))
 	}
-	r.console.ToolPreview(preview)
+	return preview
 }

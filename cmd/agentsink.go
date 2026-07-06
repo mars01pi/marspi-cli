@@ -27,6 +27,12 @@ func mapAgentEvent(ev agent.Event) ui.AgentEvent {
 		Streamed:      ev.Streamed,
 		Delta:         ev.Delta,
 		Text:          ev.Text,
+		ToolName:        ev.ToolName,
+		ToolCallID:      ev.ToolCallID,
+		ToolPreview:     ev.ToolPreview,
+		ToolResultLines: ev.ToolResultLines,
+		ToolOK:          ev.ToolOK,
+		ToolDenied:      ev.ToolDenied,
 	}
 	switch ev.DeltaField {
 	case agent.DeltaReasoning:

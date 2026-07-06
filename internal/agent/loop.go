@@ -93,15 +93,9 @@ func (r *Runner) LoopCtx(runCtx context.Context, ctx *agentctx.Manager, ctxFileP
 					break
 				}
 				logx.Debugf("tool call: %s", tc.Name)
-				r.emit(Event{Type: EventToolStart, ToolName: tc.Name, ToolCallID: tc.ID, ToolArgs: tc.Arguments})
-				result := r.Registry.Execute(tc.Name, tc.Arguments)
-				ok := toolResultOK(result)
-				r.emit(Event{Type: EventToolEnd, ToolName: tc.Name, ToolCallID: tc.ID, ToolOK: ok})
+				result, done := r.executeTool(iteration, tc)
 				ctx.AppendTool(tc.ID, tc.Name, result)
-				if tc.Name == "attempt_completion" {
-					if s, ok := result.(string); ok && s != "" {
-						r.emit(Event{Type: EventMessageEnd, Content: s})
-					}
+				if done {
 					completed = true
 					break
 				}

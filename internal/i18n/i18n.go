@@ -8,6 +8,7 @@ var dict = map[string]pair{
 	"tool.call":                     {"工具调用", "Tool call"},
 	"tool.result.ok":                {"成功应用", "Applied successfully"},
 	"tool.result.fail":              {"执行失败", "Execution failed"},
+	"tool.denied":                   {"已拒绝", "Denied by user"},
 	"llm.thinking":                  {"思考中", "Thinking"},
 	"llm.output":                    {"输出", "Output"},
 	"context.compact":               {"上下文压缩", "Context compact"},

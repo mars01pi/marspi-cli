@@ -45,6 +45,13 @@ type AgentEvent struct {
 	DeltaField   string // "content" | "reasoning"
 	Delta        string
 
+	ToolName        string
+	ToolCallID      string
+	ToolPreview     string
+	ToolResultLines []string
+	ToolOK          bool
+	ToolDenied      bool
+
 	Text string
 }
 
@@ -111,7 +118,23 @@ func RenderAgentEvent(ch chan<- Event, ev AgentEvent) {
 				send(Event{Kind: EvLine, Text: line, Style: "output"})
 			}
 		}
-	case AgentToolStart, AgentToolUpdate, AgentToolEnd:
+	case AgentToolStart:
+		line := "› " + ev.ToolName
+		if ev.ToolPreview != "" {
+			line += "  " + ev.ToolPreview
+		}
+		send(Event{Kind: EvToolStart, Title: i18n.T("tool.call"), Text: line, Style: "tool"})
+	case AgentToolUpdate:
+		if ev.Text != "" {
+			send(Event{Kind: EvSpinner, Text: ev.Text, Style: "start"})
+		}
+	case AgentToolEnd:
+		send(Event{
+			Kind:            EvToolDone,
+			ToolOK:          ev.ToolOK,
+			ToolDenied:      ev.ToolDenied,
+			ToolResultLines: ev.ToolResultLines,
+		})
 	case AgentWarn:
 		send(Event{Kind: EvWarning, Text: ev.Text})
 	case AgentError:

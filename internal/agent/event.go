@@ -56,10 +56,13 @@ type Event struct {
 	DeltaField   DeltaField
 	Delta        string // message_delta：截至当前的累积全文（非增量片段）
 
-	ToolName   string
-	ToolCallID string
-	ToolArgs   map[string]any
-	ToolOK     bool
+	ToolName        string
+	ToolCallID      string
+	ToolArgs        map[string]any
+	ToolPreview     string   // Tool.Preview(args) 单行摘要
+	ToolResultLines []string // 截断后的输出预览（⎿ 块）
+	ToolOK          bool
+	ToolDenied      bool
 
 	Text string
 

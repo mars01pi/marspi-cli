@@ -14,6 +14,7 @@ import (
 
 	"github.com/mars/marspi-cli/internal/agentctx"
 	"github.com/mars/marspi-cli/internal/config"
+	"github.com/mars/marspi-cli/internal/i18n"
 	"github.com/mars/marspi-cli/internal/logx"
 	"github.com/mars/marspi-cli/internal/ui"
 )
@@ -476,12 +477,19 @@ func (m *replModel) drainAgentEvents(first ui.Event) tea.Cmd {
 	}
 }
 
+const replToolPreviewMax = 25
+
 func (m *replModel) renderEvent(ev ui.Event) {
 	switch ev.Kind {
 	case ui.EvSection:
 		m.pushHist("section", ev.Title)
 	case ui.EvLine:
 		m.pushHist(ev.Style, ev.Text)
+	case ui.EvToolStart:
+		m.pushHist("section", ev.Title)
+		m.pushHist(ev.Style, ev.Text)
+	case ui.EvToolDone:
+		m.renderToolDone(ev)
 	case ui.EvStreamDelta:
 		m.applyStreamDelta(ev)
 	case ui.EvStreamEnd:
@@ -500,6 +508,36 @@ func (m *replModel) renderEvent(ev ui.Event) {
 		} else {
 			m.spinText = ""
 		}
+	}
+}
+
+func (m *replModel) renderToolDone(ev ui.Event) {
+	lines := ev.ToolResultLines
+	if len(lines) == 0 {
+		m.pushHist("tool-result", "⎿  (no output)")
+	} else {
+		show := lines
+		if len(lines) > replToolPreviewMax {
+			show = lines[:replToolPreviewMax]
+		}
+		for i, line := range show {
+			prefix := "   "
+			if i == 0 {
+				prefix = "⎿  "
+			}
+			m.pushHist("tool-result", prefix+line)
+		}
+		if len(lines) > replToolPreviewMax {
+			more := len(lines) - replToolPreviewMax
+			m.pushHist("tool-result", fmt.Sprintf("⎿  … and %d more lines (PgUp/PgDn to scroll history)", more))
+		}
+	}
+	if ev.ToolDenied {
+		m.pushHist("warning", i18n.T("tool.denied"))
+	} else if ev.ToolOK {
+		m.pushHist("success", i18n.T("tool.result.ok"))
+	} else {
+		m.pushHist("error", i18n.T("tool.result.fail"))
 	}
 }
 

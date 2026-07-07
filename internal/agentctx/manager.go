@@ -133,11 +133,17 @@ func (m *Manager) AppendTool(toolCallID, toolName string, content any) {
 	m.Messages = append(m.Messages, msg)
 }
 
-// Load 从持久化文件读取消息，损坏则备份并重置。
+// Load 从持久化文件读取消息；损坏则尝试 .tmp 恢复，否则备份并重置。
 func (m *Manager) Load(path string) {
-	data, err := os.ReadFile(path)
+	data, err := readSessionBytes(path)
 	if err != nil {
-		return // 文件不存在视为空会话
+		if os.IsNotExist(err) {
+			return
+		}
+		if m.console != nil {
+			m.console.Error("session file unreadable: " + err.Error())
+		}
+		return
 	}
 	var msgs []llm.Message
 	if jerr := json.Unmarshal(data, &msgs); jerr != nil {
@@ -151,13 +157,13 @@ func (m *Manager) Load(path string) {
 	m.Messages = msgs
 }
 
-// Save 将消息写入持久化文件。
+// Save 将消息原子写入持久化文件。
 func (m *Manager) Save(path string) error {
 	data, err := json.MarshalIndent(m.Messages, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	return AtomicWriteFile(path, data, 0o644)
 }
 
 // Backup 备份持久化文件（追加时间戳后缀）。

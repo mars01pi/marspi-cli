@@ -79,8 +79,11 @@ export MARS_MODEL=deepseek-v4-flash
 | `MARS_SEARCH_API_KEY` | — | 博查 Web Search API Key |
 | `MARS_DEBUG` | — | `=1` 开启调试日志（TUI 内嵌显示） |
 | `MARS_PLAIN` | — | `=1` 禁用 TUI，使用单行 REPL |
+| `MARS_STREAM` | `1` | `=1`/`on` 启用 SSE 流式输出；`0`/`off` 回退非流式 |
 
 持久化目录：`<cwd>/.marspicli/`（session、memory、loops、providers.json）
+
+会话文件 `session.json` 使用原子写入（`.tmp` + rename）；崩溃后若主文件损坏，启动时会尝试从 `session.json.tmp` 恢复。
 
 ---
 

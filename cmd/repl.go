@@ -592,6 +592,27 @@ func (m *replModel) startLoop(input, goal string) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(m.listenEvents())
 }
 
+func (m *replModel) flushAllLiveStreams() {
+	for _, id := range m.liveOrder {
+		ls := m.live[id]
+		if ls == nil {
+			continue
+		}
+		if ls.title != "" {
+			m.histLines = append(m.histLines, histLine{style: "section", text: ls.title})
+		}
+		if ls.text != "" {
+			for _, line := range strings.Split(ls.text, "\n") {
+				m.histLines = append(m.histLines, histLine{style: ls.style, text: line})
+			}
+		}
+	}
+	m.live = map[string]*liveStream{}
+	m.liveOrder = nil
+	m.streamDirty = false
+	m.rebuildViewport()
+}
+
 func (m *replModel) cancelAgent() {
 	if m.agentCancel != nil {
 		m.agentCancel()
@@ -602,9 +623,7 @@ func (m *replModel) finishAgent() {
 	m.running = false
 	m.spinText = ""
 	m.agentCancel = nil
-	m.live = map[string]*liveStream{}
-	m.liveOrder = nil
-	m.streamDirty = false
+	m.flushAllLiveStreams()
 	m.statusBar = replHelpHint
 	m.installUIHooks()
 }

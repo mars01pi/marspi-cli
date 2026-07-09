@@ -599,12 +599,15 @@ func (m *replModel) startGraphLoop(input, goal string) (tea.Model, tea.Cmd) {
 	m.pushHist("success", "🎯 Graph Loop: "+goal)
 	m.pushUserInput(input)
 
+	ctx, cancel := context.WithCancel(context.Background())
+	m.agentCancel = cancel
+
 	unsubAgent := m.app.runner.Events.Subscribe(agentTUIHandler(m.eventCh))
 	m.app.console.SetHooks(m.uiHooks())
 
 	go func() {
 		defer unsubAgent()
-		m.app.runGraphLoopEngine(goal, 5)
+		m.app.runGraphLoopEngine(ctx, goal, 5)
 		if m.program != nil {
 			m.program.Send(agentDoneMsg{})
 		}
@@ -620,12 +623,15 @@ func (m *replModel) startSupervise(input, goal string) (tea.Model, tea.Cmd) {
 	m.pushHist("success", "🎯 Supervise: "+goal)
 	m.pushUserInput(input)
 
+	ctx, cancel := context.WithCancel(context.Background())
+	m.agentCancel = cancel
+
 	unsubAgent := m.app.runner.Events.Subscribe(agentTUIHandler(m.eventCh))
 	m.app.console.SetHooks(m.uiHooks())
 
 	go func() {
 		defer unsubAgent()
-		m.app.runSupervisorEngine(goal, 8)
+		m.app.runSupervisorEngine(ctx, goal, 8)
 		if m.program != nil {
 			m.program.Send(agentDoneMsg{})
 		}

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,7 +9,6 @@ import (
 	"time"
 
 	"github.com/mars/marspi-core/agentctx"
-	"github.com/mars/marspi-core/llm"
 )
 
 // runLoopEngine 实现 3-agent 协作：Implementer + Verifier + Updater。
@@ -101,28 +101,60 @@ func (a *App) runLoopEngine(goal string, maxIter int) {
 	a.console.Error(fmt.Sprintf("Loop failed after %d iterations", maxIter))
 }
 
-// changedFiles 从 edit/write 的 tool 消息中提取被修改的文件，对齐 _extract_changed_files。
+// changedFiles extracts paths from assistant tool_calls for edit/write.
 func changedFiles(ctx *agentctx.Manager) string {
 	seen := map[string]bool{}
 	var files []string
 	for _, m := range ctx.Messages {
-		if r, _ := m["role"].(string); r != "tool" {
+		if r, _ := m["role"].(string); r != "assistant" {
 			continue
 		}
-		tn, _ := m["tool_name"].(string)
-		if tn != "edit" && tn != "write" {
+		tcs, ok := m["tool_calls"].([]any)
+		if !ok {
 			continue
 		}
-		content := contentStr(m["content"])
-		if !seen[content] {
-			seen[content] = true
-			files = append(files, content)
+		for _, raw := range tcs {
+			tc, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			fn, _ := tc["function"].(map[string]any)
+			if fn == nil {
+				continue
+			}
+			name, _ := fn["name"].(string)
+			if name != "edit" && name != "write" {
+				continue
+			}
+			path := pathFromToolArgs(fn["arguments"])
+			if path == "" || seen[path] {
+				continue
+			}
+			seen[path] = true
+			files = append(files, path)
 		}
 	}
 	if len(files) == 0 {
 		return "(unknown — Verifier inspect project to find)"
 	}
 	return strings.Join(files, ",\n ")
+}
+
+func pathFromToolArgs(args any) string {
+	switch a := args.(type) {
+	case string:
+		var m map[string]any
+		if err := json.Unmarshal([]byte(a), &m); err != nil {
+			return ""
+		}
+		p, _ := m["path"].(string)
+		return p
+	case map[string]any:
+		p, _ := a["path"].(string)
+		return p
+	default:
+		return ""
+	}
 }
 
 // completionResult 提取最后一条 attempt_completion 的结果，对齐 _get_completion_result。
@@ -150,5 +182,3 @@ func contentStr(v any) string {
 		return fmt.Sprintf("%v", x)
 	}
 }
-
-var _ = llm.ToolCall{} // 保持 llm 依赖（Messages 类型来自 llm）

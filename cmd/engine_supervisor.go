@@ -4,14 +4,19 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/mars/marspi-graph/orchestrator"
 )
 
 // runSupervisorEngine 用 marspi-graph Supervisor 星型编排跑动态多 Agent。
 // 实验命令 /supervise /sv，与 /loop /loopg 并存。
-func (a *App) runSupervisorEngine(goal string, maxSteps int) {
-	res, err := orchestrator.RunSupervisor(context.Background(), orchestrator.SupervisorConfig{
+func (a *App) runSupervisorEngine(ctx context.Context, goal string, maxSteps int) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	threadID := fmt.Sprintf("supervisor-%d", time.Now().UnixNano())
+	res, err := orchestrator.RunSupervisor(ctx, orchestrator.SupervisorConfig{
 		Goal:         goal,
 		MaxSteps:     maxSteps,
 		SystemPrompt: a.prompt.Assemble(),
@@ -22,6 +27,7 @@ func (a *App) runSupervisorEngine(goal string, maxSteps int) {
 		MaxContext:   a.cfg.MaxContext,
 		MaxIterAgent: a.cfg.MaxIter,
 		Stream:       a.cfg.Stream,
+		ThreadID:     threadID,
 		Workers: []orchestrator.WorkerSpec{
 			{
 				ID:           "researcher",
@@ -43,11 +49,12 @@ func (a *App) runSupervisorEngine(goal string, maxSteps int) {
 		},
 	})
 	if err != nil {
+		if ctx.Err() != nil {
+			a.console.Warning("Supervisor stopped.")
+			return
+		}
 		a.console.Error("Supervisor error: " + err.Error())
 		return
-	}
-	if e := res.State.GetString("error"); e != "" {
-		a.console.Warning("Supervisor note: " + e)
 	}
 	a.console.Success(fmt.Sprintf("Supervisor done (last=%s)", res.State.GetString("last_agent")))
 	if res.Message != "" {

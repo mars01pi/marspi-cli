@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -204,7 +205,7 @@ func (a *App) handleCommand(userInput string, ctx *agentctx.Manager, ctxFile, sy
 		}
 		a.console.Success("🎯 Supervise: " + goal)
 		if !a.console.TUIMode() {
-			a.runSupervisorEngine(goal, 8)
+			a.runSupervisorEngine(context.Background(), goal, 8)
 		}
 		return true, false
 	case userInput == "/loopg" || strings.HasPrefix(userInput, "/loopg ") ||
@@ -216,7 +217,7 @@ func (a *App) handleCommand(userInput string, ctx *agentctx.Manager, ctxFile, sy
 		}
 		a.console.Success("🎯 Graph Loop: " + goal)
 		if !a.console.TUIMode() {
-			a.runGraphLoopEngine(goal, 5)
+			a.runGraphLoopEngine(context.Background(), goal, 5)
 		}
 		return true, false
 	case userInput == "/loop" || strings.HasPrefix(userInput, "/loop ") ||

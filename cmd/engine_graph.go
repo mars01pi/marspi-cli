@@ -2,15 +2,21 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"strings"
+	"time"
 
 	"github.com/mars/marspi-graph/orchestrator"
 )
 
 // runGraphLoopEngine 用 marspi-graph CodingLoop 跑 Implementer→Verifier→Updater。
 // 与 runLoopEngine（命令式旧实现）并存，供 /loopg 试用。
-func (a *App) runGraphLoopEngine(goal string, maxIter int) {
-	res, err := orchestrator.RunCodingLoop(context.Background(), orchestrator.CodingLoopConfig{
+func (a *App) runGraphLoopEngine(ctx context.Context, goal string, maxIter int) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	threadID := fmt.Sprintf("coding-loop-%d", time.Now().UnixNano())
+	res, err := orchestrator.RunCodingLoop(ctx, orchestrator.CodingLoopConfig{
 		Goal:         goal,
 		MaxIter:      maxIter,
 		SystemPrompt: a.prompt.Assemble(),
@@ -21,8 +27,13 @@ func (a *App) runGraphLoopEngine(goal string, maxIter int) {
 		MaxContext:   a.cfg.MaxContext,
 		MaxIterAgent: a.cfg.MaxIter,
 		Stream:       a.cfg.Stream,
+		ThreadID:     threadID,
 	})
 	if err != nil {
+		if ctx.Err() != nil {
+			a.console.Warning("Graph loop stopped.")
+			return
+		}
 		a.console.Error("Graph loop error: " + err.Error())
 		return
 	}

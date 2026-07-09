@@ -613,6 +613,27 @@ func (m *replModel) startGraphLoop(input, goal string) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(m.listenEvents())
 }
 
+func (m *replModel) startSupervise(input, goal string) (tea.Model, tea.Cmd) {
+	m.running = true
+	m.spinText = "Supervise…"
+	m.statusBar = "Supervisor running — Esc or /stop to cancel"
+	m.pushHist("success", "🎯 Supervise: "+goal)
+	m.pushUserInput(input)
+
+	unsubAgent := m.app.runner.Events.Subscribe(agentTUIHandler(m.eventCh))
+	m.app.console.SetHooks(m.uiHooks())
+
+	go func() {
+		defer unsubAgent()
+		m.app.runSupervisorEngine(goal, 8)
+		if m.program != nil {
+			m.program.Send(agentDoneMsg{})
+		}
+	}()
+
+	return m, tea.Batch(m.listenEvents())
+}
+
 func (m *replModel) flushAllLiveStreams() {
 	for _, id := range m.liveOrder {
 		ls := m.live[id]
@@ -679,6 +700,9 @@ func (m *replModel) submit() (tea.Model, tea.Cmd) {
 		return m, m.listenEvents()
 	}
 
+	if goal, ok := parseSuperviseGoal(input); ok {
+		return m.startSupervise(input, goal)
+	}
 	if goal, ok := parseGraphLoopGoal(input); ok {
 		return m.startGraphLoop(input, goal)
 	}

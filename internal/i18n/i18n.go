@@ -49,6 +49,7 @@ var HelpCommands = []HelpCommand{
 	{"/h or /help", "显示本帮助信息", "Show this help info"},
 	{"/g or /goal", "[已废弃] 请改用 /loop", "[deprecated] Use /loop instead"},
 	{"/l or /loop", "启动循环工程完成你的目标", "Start Loop Engineering to complete your goal"},
+	{"/lg or /loopg", "用 marspi-graph 跑循环工程（实验）", "Run Loop Engineering via marspi-graph (experimental)"},
 }
 
 // lang 是进程级语言设置，默认英文。由 SetLang 初始化。

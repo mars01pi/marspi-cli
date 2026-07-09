@@ -8,6 +8,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/charmbracelet/x/ansi v0.11.6
 	github.com/mars/marspi-core v0.0.0
+	github.com/mars/marspi-graph v0.0.0
 	github.com/mattn/go-isatty v0.0.20
 )
 
@@ -40,3 +41,5 @@ require (
 )
 
 replace github.com/mars/marspi-core => ../marspi-core
+
+replace github.com/mars/marspi-graph => ../marspi-graph

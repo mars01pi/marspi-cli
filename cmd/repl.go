@@ -592,6 +592,27 @@ func (m *replModel) startLoop(input, goal string) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(m.listenEvents())
 }
 
+func (m *replModel) startGraphLoop(input, goal string) (tea.Model, tea.Cmd) {
+	m.running = true
+	m.spinText = "Graph Loop…"
+	m.statusBar = "Graph loop running — Esc or /stop to cancel"
+	m.pushHist("success", "🎯 Graph Loop: "+goal)
+	m.pushUserInput(input)
+
+	unsubAgent := m.app.runner.Events.Subscribe(agentTUIHandler(m.eventCh))
+	m.app.console.SetHooks(m.uiHooks())
+
+	go func() {
+		defer unsubAgent()
+		m.app.runGraphLoopEngine(goal, 5)
+		if m.program != nil {
+			m.program.Send(agentDoneMsg{})
+		}
+	}()
+
+	return m, tea.Batch(m.listenEvents())
+}
+
 func (m *replModel) flushAllLiveStreams() {
 	for _, id := range m.liveOrder {
 		ls := m.live[id]
@@ -658,6 +679,9 @@ func (m *replModel) submit() (tea.Model, tea.Cmd) {
 		return m, m.listenEvents()
 	}
 
+	if goal, ok := parseGraphLoopGoal(input); ok {
+		return m.startGraphLoop(input, goal)
+	}
 	if goal, ok := parseLoopGoal(input); ok {
 		return m.startLoop(input, goal)
 	}

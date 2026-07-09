@@ -195,7 +195,20 @@ func (a *App) handleCommand(userInput string, ctx *agentctx.Manager, ctxFile, sy
 	case strings.HasPrefix(userInput, "/g") || strings.HasPrefix(userInput, "/goal"):
 		a.console.Warning("/goal is deprecated. Use /loop <goal> instead.")
 		return true, false
-	case strings.HasPrefix(userInput, "/l") || strings.HasPrefix(userInput, "/loop"):
+	case userInput == "/loopg" || strings.HasPrefix(userInput, "/loopg ") ||
+		userInput == "/lg" || strings.HasPrefix(userInput, "/lg "):
+		goal, ok := parseGraphLoopGoal(userInput)
+		if !ok {
+			a.console.Error("Please input '/lg or /loopg <query>'")
+			return true, false
+		}
+		a.console.Success("🎯 Graph Loop: " + goal)
+		if !a.console.TUIMode() {
+			a.runGraphLoopEngine(goal, 5)
+		}
+		return true, false
+	case userInput == "/loop" || strings.HasPrefix(userInput, "/loop ") ||
+		userInput == "/l" || strings.HasPrefix(userInput, "/l "):
 		goal, ok := parseLoopGoal(userInput)
 		if !ok {
 			a.console.Error("Please input '/l or /loop <query>'")

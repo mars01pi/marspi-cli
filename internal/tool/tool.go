@@ -3,6 +3,8 @@
 package tool
 
 import (
+	"context"
+
 	"github.com/mars/marspi-cli/internal/config"
 	"github.com/mars/marspi-cli/internal/memory"
 	"github.com/mars/marspi-cli/internal/skill"
@@ -52,11 +54,11 @@ type Tool interface {
 // Base 提供 Tool 接口的默认实现，内置工具通过嵌入复用。
 type Base struct{}
 
-func (Base) Before(map[string]any)            {}
-func (Base) Confirm(map[string]any) bool      { return true }
-func (Base) UseSpinner() bool                 { return false }
-func (Base) PreviewLines() int                { return 20 }
-func (Base) PreviewWidth() int                { return 100 }
+func (Base) Before(map[string]any)       {}
+func (Base) Confirm(map[string]any) bool { return true }
+func (Base) UseSpinner() bool            { return false }
+func (Base) PreviewLines() int           { return 20 }
+func (Base) PreviewWidth() int           { return 100 }
 func (Base) Preview(args map[string]any) string {
 	for _, v := range args {
 		return truncate(toStr(v), 100)
@@ -66,18 +68,20 @@ func (Base) Preview(args map[string]any) string {
 
 // Registry 保存工具集合并生成 OpenAI tools schema。
 type Registry struct {
-	cfg     *config.Config
-	console *ui.Printer
-	order   []string
-	tools   map[string]Tool
+	console      *ui.Printer
+	order        []string
+	tools        map[string]Tool
+	builtinOrder []string
+	builtinTools map[string]Tool
+	providers    []Provider
 }
 
 // NewRegistry 构建注册表并注册全部内置工具。
 func NewRegistry(cfg *config.Config, console *ui.Printer, mem *memory.Manager, skills *skill.Manager) *Registry {
 	r := &Registry{
-		cfg:     cfg,
-		console: console,
-		tools:   map[string]Tool{},
+		console:      console,
+		tools:        map[string]Tool{},
+		builtinTools: map[string]Tool{},
 	}
 	c := &ctx{root: cfg.ProjectRoot, console: console}
 	image := &viewImageTool{c: c}
@@ -99,10 +103,43 @@ func NewRegistry(cfg *config.Config, console *ui.Printer, mem *memory.Manager, s
 
 // Register 追加一个工具，保持注册顺序（顺序影响 schema 顺序）。
 func (r *Registry) Register(t Tool) {
-	if _, ok := r.tools[t.Name()]; !ok {
-		r.order = append(r.order, t.Name())
+	if _, ok := r.builtinTools[t.Name()]; !ok {
+		r.builtinOrder = append(r.builtinOrder, t.Name())
 	}
-	r.tools[t.Name()] = t
+	r.builtinTools[t.Name()] = t
+	r.rebuildIndex()
+}
+
+// AddProvider 增加一个工具提供方（MCP 等），并立即刷新一次索引。
+func (r *Registry) AddProvider(p Provider) error {
+	if err := p.Refresh(context.Background()); err != nil {
+		return err
+	}
+	r.providers = append(r.providers, p)
+	r.rebuildIndex()
+	return nil
+}
+
+// RefreshProviders 刷新所有 provider 的工具定义并重建索引。
+func (r *Registry) RefreshProviders(ctx context.Context) error {
+	for _, p := range r.providers {
+		if err := p.Refresh(ctx); err != nil {
+			return err
+		}
+	}
+	r.rebuildIndex()
+	return nil
+}
+
+// Close 关闭所有 provider 资源（例如 MCP 子进程连接）。
+func (r *Registry) Close() error {
+	var firstErr error
+	for _, p := range r.providers {
+		if err := p.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
 }
 
 // Get 按名称取工具。
@@ -121,6 +158,28 @@ func (r *Registry) Schemas() []map[string]any {
 		out = append(out, schemaOf(r.tools[name]))
 	}
 	return out
+}
+
+func (r *Registry) rebuildIndex() {
+	order := make([]string, 0, len(r.builtinOrder))
+	tools := make(map[string]Tool, len(r.builtinTools))
+	for _, name := range r.builtinOrder {
+		t := r.builtinTools[name]
+		order = append(order, name)
+		tools[name] = t
+	}
+	for _, p := range r.providers {
+		for _, t := range p.Tools() {
+			name := t.Name()
+			if _, exists := tools[name]; exists {
+				continue
+			}
+			order = append(order, name)
+			tools[name] = t
+		}
+	}
+	r.order = order
+	r.tools = tools
 }
 
 // schemaOf 依据 Tool.Params 生成单个 function schema，对齐 ToolBase.schema。

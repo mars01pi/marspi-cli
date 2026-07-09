@@ -14,6 +14,7 @@ import (
 	"github.com/mars/marspi-cli/internal/i18n"
 	"github.com/mars/marspi-cli/internal/llm"
 	"github.com/mars/marspi-cli/internal/logx"
+	"github.com/mars/marspi-cli/internal/mcp"
 	"github.com/mars/marspi-cli/internal/memory"
 	"github.com/mars/marspi-cli/internal/prompt"
 	"github.com/mars/marspi-cli/internal/skill"
@@ -48,6 +49,15 @@ func NewApp(cfg *config.Config) *App {
 	skills.AddBasePath(filepath.Join(cfg.BasePersist, "skills"))
 
 	registry := tool.NewRegistry(cfg, console, mem, skills)
+	if cfg.MCPEnabled {
+		if mcpCfg, err := mcp.LoadMergedConfig(cfg.ProjectRoot); err != nil {
+			console.Warning("Failed to load MCP config, MCP disabled: " + err.Error())
+		} else if len(mcpCfg.MCPServers) > 0 {
+			if err := registry.AddProvider(mcp.NewProvider(mcpCfg)); err != nil {
+				console.Warning("Failed to initialize MCP provider: " + err.Error())
+			}
+		}
+	}
 
 	var provider llm.Provider = llm.NewProvider(cfg.Model, cfg.APIURL, cfg.APIKey)
 	var routed *llm.RoutedProvider
@@ -79,6 +89,8 @@ func NewApp(cfg *config.Config) *App {
 
 // Run 启动交互式 REPL
 func (a *App) Run() error {
+	defer func() { _ = a.registry.Close() }()
+
 	if err := a.cfg.Initialize(); err != nil {
 		return err
 	}

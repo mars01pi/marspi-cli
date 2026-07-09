@@ -27,6 +27,7 @@ type Config struct {
 	Routing    string // MARS_ROUTING: on | off
 	Stream     bool   // MARS_STREAM: 1/on 启用 SSE 流式（默认开）
 	SearchKey  string // MARS_SEARCH_API_KEY，web_search 用
+	MCPEnabled bool   // MARS_MCP: on/off，开启 MCP 工具加载
 
 	ProjectRoot   string // 当前工作目录
 	BasePersist   string // <root>/.marspicli
@@ -34,6 +35,7 @@ type Config struct {
 	MemoryDir     string // <root>/.marspicli/memory
 	LoopsDir      string // <root>/.marspicli/loops
 	ProvidersFile string // <root>/.marspicli/providers.json
+	MCPFile       string // <root>/.marspicli/mcp.json
 }
 
 func env(key, def string) string {
@@ -84,6 +86,7 @@ func Load() *Config {
 		Routing:    lower(env("MARS_ROUTING", "off")),
 		Stream:     envBool("MARS_STREAM", true),
 		SearchKey:  os.Getenv("MARS_SEARCH_API_KEY"),
+		MCPEnabled: envBool("MARS_MCP", true),
 
 		ProjectRoot:   root,
 		BasePersist:   base,
@@ -91,6 +94,7 @@ func Load() *Config {
 		MemoryDir:     filepath.Join(base, "memory"),
 		LoopsDir:      filepath.Join(base, "loops"),
 		ProvidersFile: filepath.Join(base, "providers.json"),
+		MCPFile:       filepath.Join(base, "mcp.json"),
 	}
 	return c
 }

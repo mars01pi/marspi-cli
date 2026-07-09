@@ -8,18 +8,18 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/mars/marspi-cli/internal/agent"
-	"github.com/mars/marspi-cli/internal/agentctx"
-	"github.com/mars/marspi-cli/internal/config"
 	"github.com/mars/marspi-cli/internal/i18n"
-	"github.com/mars/marspi-cli/internal/llm"
-	"github.com/mars/marspi-cli/internal/logx"
-	"github.com/mars/marspi-cli/internal/mcp"
-	"github.com/mars/marspi-cli/internal/memory"
-	"github.com/mars/marspi-cli/internal/prompt"
-	"github.com/mars/marspi-cli/internal/skill"
-	"github.com/mars/marspi-cli/internal/tool"
 	"github.com/mars/marspi-cli/internal/ui"
+	"github.com/mars/marspi-core/agent"
+	"github.com/mars/marspi-core/agentctx"
+	"github.com/mars/marspi-core/config"
+	"github.com/mars/marspi-core/llm"
+	"github.com/mars/marspi-core/logx"
+	"github.com/mars/marspi-core/mcp"
+	"github.com/mars/marspi-core/memory"
+	"github.com/mars/marspi-core/prompt"
+	"github.com/mars/marspi-core/skill"
+	"github.com/mars/marspi-core/tool"
 	"github.com/mattn/go-isatty"
 )
 
@@ -63,6 +63,7 @@ func NewApp(cfg *config.Config) *App {
 	var routed *llm.RoutedProvider
 	if cfg.Routing == "on" {
 		if rp, err := llm.NewRoutedProviderFromFile(cfg.ProvidersFile); err == nil {
+			rp.SetUI(console)
 			routed = rp
 			provider = rp
 		} else {
@@ -74,7 +75,6 @@ func NewApp(cfg *config.Config) *App {
 	runner := &agent.Runner{
 		Provider:   provider,
 		Registry:   registry,
-		Console:    console,
 		Events:     agent.NewEmitter(),
 		MaxContext: cfg.MaxContext,
 		MaxIter:    cfg.MaxIter,
@@ -132,7 +132,7 @@ func (a *App) runPlain(ctx *agentctx.Manager, ctxFile, systemPrompt string) erro
 	}
 	logx.Debugf("provider model=%s url=%s routing=%s", a.provider.Model(), a.provider.APIURL(), a.cfg.Routing)
 
-	unsubEvents := a.runner.Events.Subscribe(agent.ConsoleSink(a.console))
+	unsubEvents := a.runner.Events.Subscribe(ConsoleSink(a.console))
 	defer unsubEvents()
 
 	reader := bufio.NewReader(os.Stdin)

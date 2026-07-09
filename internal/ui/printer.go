@@ -20,13 +20,13 @@ func stripANSI(s string) string { return ansi.Strip(s) }
 
 // Printer 负责所有终端输出，内含并发安全的 spinner。
 type Printer struct {
-	mu          sync.Mutex
-	running     bool
-	message     string
-	stopCh      chan struct{}
-	doneCh      chan struct{}
-	stdin       *bufio.Reader
-	hooks       *Hooks
+	mu      sync.Mutex
+	running bool
+	message string
+	stopCh  chan struct{}
+	doneCh  chan struct{}
+	stdin   *bufio.Reader
+	hooks   *Hooks
 }
 
 // Console 是进程级默认 Printer。

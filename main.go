@@ -8,7 +8,7 @@ import (
 	"os"
 
 	"github.com/mars/marspi-cli/cmd"
-	"github.com/mars/marspi-cli/internal/config"
+	"github.com/mars/marspi-core/config"
 )
 
 func main() {

@@ -1,4 +1,4 @@
-package agent
+package cmd
 
 import (
 	"fmt"
@@ -7,6 +7,7 @@ import (
 
 	"github.com/mars/marspi-cli/internal/i18n"
 	"github.com/mars/marspi-cli/internal/ui"
+	"github.com/mars/marspi-core/agent"
 )
 
 type consoleStreamState struct {
@@ -22,35 +23,35 @@ func (s *consoleStreamState) reset() {
 }
 
 // ConsoleSink 将 agent 事件渲染到 Printer（plain REPL / 非 TUI 模式）。
-func ConsoleSink(p *ui.Printer) Handler {
+func ConsoleSink(p *ui.Printer) agent.Handler {
 	if p == nil {
-		return func(Event) {}
+		return func(agent.Event) {}
 	}
 	var stream consoleStreamState
-	return func(ev Event) {
+	return func(ev agent.Event) {
 		switch ev.Type {
-		case EventRunStart:
-		case EventRunEnd:
-		case EventTurnStart:
+		case agent.EventRunStart:
+		case agent.EventRunEnd:
+		case agent.EventTurnStart:
 			if !p.TUIMode() {
 				p.RoundMarker(ev.Iteration)
 			}
-		case EventTurnEnd:
-		case EventLLMStart:
+		case agent.EventTurnEnd:
+		case agent.EventLLMStart:
 			p.StartSpinner(ev.Text)
-		case EventLLMEnd:
+		case agent.EventLLMEnd:
 			p.EndSpinner()
 			stream.spinnerStopped = true
 			p.TokenUsage(ev.Iteration, ev.Usage.PromptTokens, ev.Usage.CompletionTokens,
 				ev.ContextTokens, ev.MaxContext)
-		case EventMessageStart:
+		case agent.EventMessageStart:
 			stream.reset()
-		case EventMessageDelta:
+		case agent.EventMessageDelta:
 			if p.TUIMode() {
 				return
 			}
 			stream.onDelta(p, ev)
-		case EventMessageEnd:
+		case agent.EventMessageEnd:
 			if p.TUIMode() {
 				return
 			}
@@ -64,38 +65,38 @@ func ConsoleSink(p *ui.Printer) Handler {
 			if ev.Content != "" && !ev.HasToolCalls {
 				p.Output(ev.Content)
 			}
-		case EventToolStart:
+		case agent.EventToolStart:
 			if p.TUIMode() {
 				return
 			}
 			renderToolStartPlain(p, ev)
-		case EventToolUpdate:
+		case agent.EventToolUpdate:
 			if p.TUIMode() {
 				return
 			}
 			if ev.Text != "" {
 				p.StartSpinner(ev.Text)
 			}
-		case EventToolEnd:
+		case agent.EventToolEnd:
 			if p.TUIMode() {
 				return
 			}
 			renderToolEndPlain(p, ev)
-		case EventWarn:
+		case agent.EventWarn:
 			p.Warning(ev.Text)
-		case EventError:
+		case agent.EventError:
 			reportError(p, ev.Text)
 		}
 	}
 }
 
-func (s *consoleStreamState) onDelta(p *ui.Printer, ev Event) {
+func (s *consoleStreamState) onDelta(p *ui.Printer, ev agent.Event) {
 	if !s.spinnerStopped {
 		p.EndSpinner()
 		s.spinnerStopped = true
 	}
 	switch ev.DeltaField {
-	case DeltaReasoning:
+	case agent.DeltaReasoning:
 		if !s.thinkingOpen {
 			s.thinkingOpen = true
 			p.Section(i18n.T("llm.thinking"))
@@ -104,7 +105,7 @@ func (s *consoleStreamState) onDelta(p *ui.Printer, ev Event) {
 			streamPrint(p, "  "+ui.Dim+ev.Delta[s.thinkingLen:]+ui.Reset)
 			s.thinkingLen = n
 		}
-	case DeltaContent:
+	case agent.DeltaContent:
 		if !s.outputOpen {
 			s.outputOpen = true
 			p.Section(i18n.T("llm.output"))
@@ -143,7 +144,7 @@ func reportError(console *ui.Printer, msg string) {
 
 func llmSpinnerText() string { return "Request..." }
 
-func renderToolStartPlain(p *ui.Printer, ev Event) {
+func renderToolStartPlain(p *ui.Printer, ev agent.Event) {
 	p.Section(i18n.T("tool.call"))
 	line := ui.C("› ", ui.Grey) + ui.C(ev.ToolName, ui.Cyan)
 	if ev.ToolPreview != "" {
@@ -152,7 +153,7 @@ func renderToolStartPlain(p *ui.Printer, ev Event) {
 	p.Text(line)
 }
 
-func renderToolEndPlain(p *ui.Printer, ev Event) {
+func renderToolEndPlain(p *ui.Printer, ev agent.Event) {
 	renderToolPreviewPlain(p, ev.ToolResultLines)
 	if ev.ToolDenied {
 		p.Warning(i18n.T("tool.denied"))

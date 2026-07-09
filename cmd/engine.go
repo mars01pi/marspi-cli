@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mars/marspi-cli/internal/agentctx"
-	"github.com/mars/marspi-cli/internal/llm"
+	"github.com/mars/marspi-core/agentctx"
+	"github.com/mars/marspi-core/llm"
 )
 
 // runLoopEngine 实现 3-agent 协作：Implementer + Verifier + Updater。

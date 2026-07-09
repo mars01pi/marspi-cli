@@ -4,9 +4,9 @@ import (
 	"errors"
 	"flag"
 
-	"github.com/mars/marspi-cli/internal/config"
 	"github.com/mars/marspi-cli/internal/flashext"
-	"github.com/mars/marspi-cli/internal/llm"
+	"github.com/mars/marspi-core/config"
+	"github.com/mars/marspi-core/llm"
 )
 
 // RunFlashExt 启动 OpenAI 兼容代理服务器（thinking framework 注入）。

@@ -12,11 +12,11 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/mars/marspi-cli/internal/agentctx"
-	"github.com/mars/marspi-cli/internal/config"
 	"github.com/mars/marspi-cli/internal/i18n"
-	"github.com/mars/marspi-cli/internal/logx"
 	"github.com/mars/marspi-cli/internal/ui"
+	"github.com/mars/marspi-core/agentctx"
+	"github.com/mars/marspi-core/config"
+	"github.com/mars/marspi-core/logx"
 )
 
 const (
@@ -28,19 +28,19 @@ const (
 const replHelpHint = "Enter send · Shift+Enter newline · PgUp/PgDn scroll · Esc stop"
 
 var (
-	replUserStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
-	replSecStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("208")).Bold(true)
-	replDimStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	replOutStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
-	replThinkStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
-	replToolStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("81"))
-	replErrStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
-	replOkStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
-	replWarnStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
-	replDebugStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Italic(true)
-	replSpinStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("208"))
-	replBarStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Background(lipgloss.Color("235"))
-	replBoxStyle   = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240"))
+	replUserStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
+	replSecStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("208")).Bold(true)
+	replDimStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	replOutStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	replThinkStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	replToolStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("81"))
+	replErrStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+	replOkStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
+	replWarnStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+	replDebugStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Italic(true)
+	replSpinStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("208"))
+	replBarStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Background(lipgloss.Color("235"))
+	replBoxStyle        = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240"))
 	replConfirmBoxStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("214")).Padding(0, 1)
 )
 

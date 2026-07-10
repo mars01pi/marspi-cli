@@ -79,7 +79,6 @@ type replModel struct {
 	ta        textarea.Model
 	histLines []histLine
 	live      map[string]*liveStream
-	liveOrder []string // 流式块首次出现的顺序
 	width     int
 	height    int
 
@@ -377,7 +376,7 @@ func (m *replModel) rebuildViewport() {
 		}
 		b.WriteString(m.styleLine(hl.style, hl.text))
 	}
-	for _, id := range m.liveOrder {
+	for _, id := range m.sortedLiveIDs() {
 		ls := m.live[id]
 		if ls == nil || ls.text == "" {
 			continue
@@ -397,22 +396,16 @@ func (m *replModel) rebuildViewport() {
 	}
 }
 
-func (m *replModel) trackLiveStream(id string) {
-	for _, existing := range m.liveOrder {
-		if existing == id {
-			return
-		}
+func (m *replModel) sortedLiveIDs() []string {
+	if len(m.live) == 0 {
+		return nil
 	}
-	m.liveOrder = append(m.liveOrder, id)
-}
-
-func (m *replModel) untrackLiveStream(id string) {
-	for i, existing := range m.liveOrder {
-		if existing == id {
-			m.liveOrder = append(m.liveOrder[:i], m.liveOrder[i+1:]...)
-			return
-		}
+	ids := make([]string, 0, len(m.live))
+	for id := range m.live {
+		ids = append(ids, id)
 	}
+	ui.SortStreamIDs(ids)
+	return ids
 }
 
 func (m *replModel) applyStreamDelta(ev ui.Event) {
@@ -423,7 +416,6 @@ func (m *replModel) applyStreamDelta(ev ui.Event) {
 	if !ok {
 		ls = &liveStream{style: ev.Style, title: ev.Title}
 		m.live[ev.StreamID] = ls
-		m.trackLiveStream(ev.StreamID)
 	}
 	// Delta 已是累积全文快照，直接替换，避免 append 与 Builder 并发读写问题
 	if ev.Text == ls.text {
@@ -459,7 +451,6 @@ func (m *replModel) flushStream(ev ui.Event) {
 		}
 	}
 	delete(m.live, ev.StreamID)
-	m.untrackLiveStream(ev.StreamID)
 	m.streamDirty = false
 	m.rebuildViewport()
 }
@@ -616,11 +607,18 @@ func (m *replModel) startGraphLoop(input, goal string) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(m.listenEvents())
 }
 
-func (m *replModel) startSupervise(input, goal string) (tea.Model, tea.Cmd) {
+func (m *replModel) startSupervise(input string, req superviseRequest) (tea.Model, tea.Cmd) {
 	m.running = true
 	m.spinText = "Supervise…"
 	m.statusBar = "Supervisor running — Esc or /stop to cancel"
-	m.pushHist("success", "🎯 Supervise: "+goal)
+	switch {
+	case req.List:
+		m.pushHist("success", "🎯 Supervise checkpoints")
+	case req.ResumeThreadID != "":
+		m.pushHist("success", "🎯 Supervise resume: "+req.ResumeThreadID)
+	default:
+		m.pushHist("success", "🎯 Supervise: "+req.Goal)
+	}
 	m.pushUserInput(input)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -631,7 +629,7 @@ func (m *replModel) startSupervise(input, goal string) (tea.Model, tea.Cmd) {
 
 	go func() {
 		defer unsubAgent()
-		m.app.runSupervisorEngine(ctx, goal, 8)
+		m.app.runSupervisorEngine(ctx, req, 8)
 		if m.program != nil {
 			m.program.Send(agentDoneMsg{})
 		}
@@ -641,7 +639,7 @@ func (m *replModel) startSupervise(input, goal string) (tea.Model, tea.Cmd) {
 }
 
 func (m *replModel) flushAllLiveStreams() {
-	for _, id := range m.liveOrder {
+	for _, id := range m.sortedLiveIDs() {
 		ls := m.live[id]
 		if ls == nil {
 			continue
@@ -656,7 +654,6 @@ func (m *replModel) flushAllLiveStreams() {
 		}
 	}
 	m.live = map[string]*liveStream{}
-	m.liveOrder = nil
 	m.streamDirty = false
 	m.rebuildViewport()
 }
@@ -706,8 +703,8 @@ func (m *replModel) submit() (tea.Model, tea.Cmd) {
 		return m, m.listenEvents()
 	}
 
-	if goal, ok := parseSuperviseGoal(input); ok {
-		return m.startSupervise(input, goal)
+	if req, ok := parseSuperviseRequest(input); ok {
+		return m.startSupervise(input, req)
 	}
 	if goal, ok := parseGraphLoopGoal(input); ok {
 		return m.startGraphLoop(input, goal)

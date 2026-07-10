@@ -198,14 +198,20 @@ func (a *App) handleCommand(userInput string, ctx *agentctx.Manager, ctxFile, sy
 		return true, false
 	case userInput == "/supervise" || strings.HasPrefix(userInput, "/supervise ") ||
 		userInput == "/sv" || strings.HasPrefix(userInput, "/sv "):
-		goal, ok := parseSuperviseGoal(userInput)
+		req, ok := parseSuperviseRequest(userInput)
 		if !ok {
-			a.console.Error("Please input '/sv or /supervise <query>'")
+			a.console.Error("Usage: /sv <goal> | /sv resume <threadID> | /sv list")
 			return true, false
 		}
-		a.console.Success("🎯 Supervise: " + goal)
+		if req.List {
+			a.console.Success("🎯 Supervise checkpoints")
+		} else if req.ResumeThreadID != "" {
+			a.console.Success("🎯 Supervise resume: " + req.ResumeThreadID)
+		} else {
+			a.console.Success("🎯 Supervise: " + req.Goal)
+		}
 		if !a.console.TUIMode() {
-			a.runSupervisorEngine(context.Background(), goal, 8)
+			a.runSupervisorEngine(context.Background(), req, 8)
 		}
 		return true, false
 	case userInput == "/loopg" || strings.HasPrefix(userInput, "/loopg ") ||

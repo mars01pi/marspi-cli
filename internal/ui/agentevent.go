@@ -98,13 +98,9 @@ func RenderAgentEvent(ch chan<- Event, ev AgentEvent) {
 		send(Event{Kind: EvStreamDelta, StreamID: id, Text: ev.Delta, Style: style, Title: title})
 	case AgentMessageEnd:
 		if ev.Streamed {
-			if ev.Reasoning != "" {
-				send(Event{Kind: EvStreamEnd, StreamID: streamID(ev.Iteration, "reasoning"), Style: "thinking", Title: i18n.T("llm.thinking")})
-			}
-			// 有 tool call 也要 flush：否则 content 会挂在 live 区，整次 run 结束才倒出
-			if ev.Content != "" {
-				send(Event{Kind: EvStreamEnd, StreamID: streamID(ev.Iteration, "content"), Style: "output", Title: i18n.T("llm.output")})
-			}
+			// 始终按 reasoning → content 顺序 flush；无对应 live 块时 flushStream 会 no-op。
+			send(Event{Kind: EvStreamEnd, StreamID: streamID(ev.Iteration, "reasoning"), Style: "thinking", Title: i18n.T("llm.thinking")})
+			send(Event{Kind: EvStreamEnd, StreamID: streamID(ev.Iteration, "content"), Style: "output", Title: i18n.T("llm.output")})
 			return
 		}
 		if ev.Reasoning != "" {

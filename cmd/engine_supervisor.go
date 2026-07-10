@@ -1,5 +1,6 @@
 package cmd
 
+// Supervisor engine for star-topology multi-agent orchestration with HITL approval.
 import (
 	"context"
 	"errors"

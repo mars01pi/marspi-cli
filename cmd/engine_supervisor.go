@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -9,25 +10,39 @@ import (
 	"github.com/mars/marspi-graph/orchestrator"
 )
 
-// runSupervisorEngine 用 marspi-graph Supervisor 星型编排跑动态多 Agent。
+// runSupervisorEngine runs a star-topology supervisor workflow via marspi-graph.
+// 用 marspi-graph Supervisor 星型编排跑动态多 Agent。
 // 实验命令 /supervise /sv，与 /loop /loopg 并存。
+// 派发 coder 前会经 Confirm 审批（HITL）。
 func (a *App) runSupervisorEngine(ctx context.Context, goal string, maxSteps int) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	threadID := fmt.Sprintf("supervisor-%d", time.Now().UnixNano())
 	res, err := orchestrator.RunSupervisor(ctx, orchestrator.SupervisorConfig{
-		Goal:         goal,
-		MaxSteps:     maxSteps,
-		SystemPrompt: a.prompt.Assemble(),
-		Provider:     a.provider,
-		Registry:     a.registry,
-		Reporter:     a.console,
-		Events:       a.runner.Events,
-		MaxContext:   a.cfg.MaxContext,
-		MaxIterAgent: a.cfg.MaxIter,
-		Stream:       a.cfg.Stream,
-		ThreadID:     threadID,
+		Goal:               goal,
+		MaxSteps:           maxSteps,
+		SystemPrompt:       a.prompt.Assemble(),
+		Provider:           a.provider,
+		Registry:           a.registry,
+		Reporter:           a.console,
+		Events:             a.runner.Events,
+		MaxContext:         a.cfg.MaxContext,
+		MaxIterAgent:       a.cfg.MaxIter,
+		Stream:             a.cfg.Stream,
+		ThreadID:           threadID,
+		RequireApprovalFor: []string{"coder"},
+		OnInterrupt: func(runCtx context.Context, info orchestrator.InterruptInfo) (bool, error) {
+			if err := runCtx.Err(); err != nil {
+				return false, err
+			}
+			msg := formatHITLConfirm(info)
+			ok := a.console.PromptApply(msg)
+			if err := runCtx.Err(); err != nil {
+				return false, err
+			}
+			return ok, nil
+		},
 		Workers: []orchestrator.WorkerSpec{
 			{
 				ID:           "researcher",
@@ -53,6 +68,10 @@ func (a *App) runSupervisorEngine(ctx context.Context, goal string, maxSteps int
 			a.console.Warning("Supervisor stopped.")
 			return
 		}
+		if errors.Is(err, orchestrator.ErrApprovalDenied) {
+			a.console.Warning("Handoff denied — supervisor stopped.")
+			return
+		}
 		a.console.Error("Supervisor error: " + err.Error())
 		return
 	}
@@ -60,6 +79,27 @@ func (a *App) runSupervisorEngine(ctx context.Context, goal string, maxSteps int
 	if res.Message != "" {
 		a.console.Text(res.Message)
 	}
+}
+
+func formatHITLConfirm(info orchestrator.InterruptInfo) string {
+	worker := info.Node
+	reason, task := "", ""
+	if m, ok := info.Value.(map[string]any); ok {
+		if w, _ := m["worker"].(string); w != "" {
+			worker = w
+		}
+		reason, _ = m["reason"].(string)
+		task, _ = m["task"].(string)
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Approve handoff to %s?", worker)
+	if reason != "" {
+		fmt.Fprintf(&b, "\nReason: %s", reason)
+	}
+	if task != "" {
+		fmt.Fprintf(&b, "\nTask: %s", task)
+	}
+	return b.String()
 }
 
 // parseSuperviseGoal 解析 /supervise 或 /sv 命令。

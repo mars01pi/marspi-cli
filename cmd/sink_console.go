@@ -62,7 +62,7 @@ func ConsoleSink(p *ui.Printer) agent.Handler {
 			if ev.Reasoning != "" {
 				p.Thinking(ev.Reasoning)
 			}
-			if ev.Content != "" && !ev.HasToolCalls {
+			if ev.Content != "" {
 				p.Output(ev.Content)
 			}
 		case agent.EventToolStart:

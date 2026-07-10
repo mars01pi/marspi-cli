@@ -101,7 +101,8 @@ func RenderAgentEvent(ch chan<- Event, ev AgentEvent) {
 			if ev.Reasoning != "" {
 				send(Event{Kind: EvStreamEnd, StreamID: streamID(ev.Iteration, "reasoning"), Style: "thinking", Title: i18n.T("llm.thinking")})
 			}
-			if ev.Content != "" && !ev.HasToolCalls {
+			// 有 tool call 也要 flush：否则 content 会挂在 live 区，整次 run 结束才倒出
+			if ev.Content != "" {
 				send(Event{Kind: EvStreamEnd, StreamID: streamID(ev.Iteration, "content"), Style: "output", Title: i18n.T("llm.output")})
 			}
 			return
@@ -112,7 +113,7 @@ func RenderAgentEvent(ch chan<- Event, ev AgentEvent) {
 				send(Event{Kind: EvLine, Text: line, Style: "thinking"})
 			}
 		}
-		if ev.Content != "" && !ev.HasToolCalls {
+		if ev.Content != "" {
 			send(Event{Kind: EvSection, Title: i18n.T("llm.output")})
 			for _, line := range strings.Split(ev.Content, "\n") {
 				send(Event{Kind: EvLine, Text: line, Style: "output"})

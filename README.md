@@ -84,7 +84,7 @@ export MARS_MODEL=deepseek-v4-flash
 
 持久化目录：`<cwd>/.marspicli/`（session、memory、loops、providers.json、checkpoints.db）
 
-Supervisor（`/sv`）会把 graph Snapshot 写入 checkpoints.db。Esc 中断后可用 `/sv resume <threadID>` 跨进程续跑（只恢复图状态，不恢复 worker 对话；见 marspi-graph ADR 0004）。`/sv list` 列出 interrupted 线程。
+Supervisor（`/sv`）会把 graph Snapshot 写入 checkpoints.db。Esc 中断或 HITL 挂起后可用 `/sv resume <threadID>` 跨进程续跑（只恢复图状态，不恢复 worker 对话；见 marspi-graph ADR 0004）。`/sv list` 列出可续跑线程（含 mid-run 取消与 HITL）。
 
 ---
 

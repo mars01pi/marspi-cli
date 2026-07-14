@@ -100,18 +100,24 @@ func (a *App) runSupervisorEngine(ctx context.Context, req superviseRequest, max
 }
 
 func (a *App) listSupervisorCheckpoints(ctx context.Context, cp *checkpoint.SQLite, dbPath string) {
-	list, err := cp.ListInterrupted(ctx)
+	// Esc cancel leaves interrupt=0 with a pending next node; HITL leaves interrupt=1.
+	list, err := cp.ListResumable(ctx)
 	if err != nil {
 		a.console.Error(err.Error())
 		return
 	}
 	a.console.Text("db=" + dbPath)
 	if len(list) == 0 {
-		a.console.Text("No interrupted supervisor threads.")
+		a.console.Text("No resumable supervisor threads.")
 		return
 	}
 	for _, m := range list {
-		a.console.Text(fmt.Sprintf("- %s  node=%s step=%d  (/sv resume %s)", m.ThreadID, m.Node, m.Step, m.ThreadID))
+		kind := "mid-run"
+		if m.Interrupt {
+			kind = "hitl"
+		}
+		a.console.Text(fmt.Sprintf("- %s  node=%s step=%d (%s)  (/sv resume %s)",
+			m.ThreadID, m.Node, m.Step, kind, m.ThreadID))
 	}
 }
 

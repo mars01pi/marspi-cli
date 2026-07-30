@@ -49,6 +49,7 @@ var HelpCommands = []HelpCommand{
 	{"/h or /help", "显示本帮助信息", "Show this help info"},
 	{"/g or /goal", "[已废弃] 请改用 /loop", "[deprecated] Use /loop instead"},
 	{"/l or /loop", "启动循环工程完成你的目标", "Start Loop Engineering to complete your goal"},
+	{"/df or /devflow", "DevFlow 可配置流水线（Design→…→Push；/df resume|/df list|--workflow|--no-push）", "DevFlow configurable pipeline (Design→…→Push; /df resume|/df list|--workflow|--no-push)"},
 	{"/lg or /loopg", "用 marspi-graph 跑循环工程（实验）", "Run Loop Engineering via marspi-graph (experimental)"},
 	{"/sv or /supervise", "Supervisor 动态调度（实验；派 coder 前确认；/sv resume|/sv list）", "Supervisor multi-agent (experimental; confirms before coder; /sv resume|/sv list)"},
 }

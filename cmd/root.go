@@ -196,6 +196,24 @@ func (a *App) handleCommand(userInput string, ctx *agentctx.Manager, ctxFile, sy
 	case strings.HasPrefix(userInput, "/g") || strings.HasPrefix(userInput, "/goal"):
 		a.console.Warning("/goal is deprecated. Use /loop <goal> instead.")
 		return true, false
+	case userInput == "/devflow" || strings.HasPrefix(userInput, "/devflow ") ||
+		userInput == "/df" || strings.HasPrefix(userInput, "/df "):
+		req, ok := parseDevflowRequest(userInput)
+		if !ok {
+			a.console.Error("Usage: /df <goal> | /df --workflow path.yaml <goal> | /df resume <threadID> | /df list | /df --no-push <goal>")
+			return true, false
+		}
+		if req.List {
+			a.console.Success("🎯 DevFlow checkpoints")
+		} else if req.ResumeThreadID != "" {
+			a.console.Success("🎯 DevFlow resume: " + req.ResumeThreadID)
+		} else {
+			a.console.Success("🎯 DevFlow: " + req.Goal)
+		}
+		if !a.console.TUIMode() {
+			a.runDevFlowEngine(context.Background(), req)
+		}
+		return true, false
 	case userInput == "/supervise" || strings.HasPrefix(userInput, "/supervise ") ||
 		userInput == "/sv" || strings.HasPrefix(userInput, "/sv "):
 		req, ok := parseSuperviseRequest(userInput)

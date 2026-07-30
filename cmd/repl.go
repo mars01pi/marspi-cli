@@ -607,6 +607,37 @@ func (m *replModel) startGraphLoop(input, goal string) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(m.listenEvents())
 }
 
+func (m *replModel) startDevFlow(input string, req devflowRequest) (tea.Model, tea.Cmd) {
+	m.running = true
+	m.spinText = "DevFlow…"
+	m.statusBar = "DevFlow running — Esc or /stop to cancel"
+	switch {
+	case req.List:
+		m.pushHist("success", "🎯 DevFlow checkpoints")
+	case req.ResumeThreadID != "":
+		m.pushHist("success", "🎯 DevFlow resume: "+req.ResumeThreadID)
+	default:
+		m.pushHist("success", "🎯 DevFlow: "+req.Goal)
+	}
+	m.pushUserInput(input)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	m.agentCancel = cancel
+
+	unsubAgent := m.app.runner.Events.Subscribe(agentTUIHandler(m.eventCh))
+	m.app.console.SetHooks(m.uiHooks())
+
+	go func() {
+		defer unsubAgent()
+		m.app.runDevFlowEngine(ctx, req)
+		if m.program != nil {
+			m.program.Send(agentDoneMsg{})
+		}
+	}()
+
+	return m, tea.Batch(m.listenEvents())
+}
+
 func (m *replModel) startSupervise(input string, req superviseRequest) (tea.Model, tea.Cmd) {
 	m.running = true
 	m.spinText = "Supervise…"
@@ -703,6 +734,9 @@ func (m *replModel) submit() (tea.Model, tea.Cmd) {
 		return m, m.listenEvents()
 	}
 
+	if req, ok := parseDevflowRequest(input); ok {
+		return m.startDevFlow(input, req)
+	}
 	if req, ok := parseSuperviseRequest(input); ok {
 		return m.startSupervise(input, req)
 	}

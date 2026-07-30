@@ -16,6 +16,7 @@
 | 🧠 **三级上下文压缩** | micro → session → full compact，自动管理 token 上限 |
 | 🧭 **Smart Routing** | 关键词 + LLM 混合评分，自动在 low / medium / high 三级模型间路由 |
 | 🔄 **Loop Engineering** | `/loop <goal>` 三智能体协作循环 |
+| 🛠 **DevFlow** | `/df <goal>` 可配置 Design→…→Push 流水线（Spec / `--workflow`） |
 | 🔌 **Flash-ext 代理** | OpenAI 兼容 HTTP 服务，自动注入结构化思考框架 |
 | 💾 **长期记忆** | `search_memory` / `append_memory` 跨会话持久化 |
 | 📦 **技能系统** | SKILL.md 技能加载，`use_skill` 按需调用 |
@@ -80,11 +81,14 @@ export MARS_MODEL=deepseek-v4-flash
 | `MARS_DEBUG` | — | `=1` 开启调试日志（TUI 内嵌显示） |
 | `MARS_PLAIN` | — | `=1` 禁用 TUI，使用单行 REPL |
 | `MARS_STREAM` | `1` | `=1`/`on` 启用 SSE 流式输出；`0`/`off` 回退非流式 |
-| `MARSPI_CHECKPOINT_DB` | `.marspicli/checkpoints.db` | Supervisor 图检查点 SQLite 路径 |
+| `MARSPI_CHECKPOINT_DB` | `.marspicli/checkpoints.db` | Supervisor / DevFlow 图检查点 SQLite 路径 |
+| `MARSPI_DEVFLOW_ALLOW_PUSH` | `true` | `=0`/`false` 时 DevFlow 跳过 push（等同 `--no-push`） |
 
 持久化目录：`<cwd>/.marspicli/`（session、memory、loops、providers.json、checkpoints.db）
 
-Supervisor（`/sv`）会把 graph Snapshot 写入 checkpoints.db。Esc 中断或 HITL 挂起后可用 `/sv resume <threadID>` 跨进程续跑（只恢复图状态，不恢复 worker 对话；见 marspi-graph ADR 0004）。`/sv list` 列出可续跑线程（含 mid-run 取消与 HITL）。
+Supervisor（`/sv`）与 DevFlow（`/df`）会把 graph Snapshot 写入 checkpoints.db。Esc 中断或 HITL 挂起后可用 `/sv resume` / `/df resume <threadID>` 跨进程续跑（只恢复图状态，不恢复 agent 对话；见 marspi-graph ADR 0004）。`/sv list` / `/df list` 列出可续跑线程。
+
+DevFlow（`/df` / `/devflow`）加载内置 Design→Develop→Review→Test→Push Spec（或 `--workflow path.yaml`）。Push 前 Confirm；`--no-push` 只改代码不推送。
 
 ---
 
@@ -125,6 +129,9 @@ export MARS_ROUTING=on
 | `/n` `/new` | 新建会话 |
 | `/h` `/help` | 帮助 |
 | `/l` `/loop <goal>` | Loop Engineering |
+| `/lg` `/loopg <goal>` | Graph CodingLoop（实验） |
+| `/sv` `/supervise <goal>` | Supervisor（实验；`/sv resume` `/sv list`） |
+| `/df` `/devflow <goal>` | DevFlow 流水线（`--workflow` / `--no-push` / `resume` / `list`） |
 
 ---
 

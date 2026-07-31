@@ -104,10 +104,11 @@ func RenderAgentEvent(ch chan<- Event, ev AgentEvent) {
 			return
 		}
 		if ev.Reasoning != "" {
-			send(Event{Kind: EvSection, Title: i18n.T("llm.thinking")})
-			for _, line := range truncateLines(strings.Split(ev.Reasoning, "\n"), 30) {
-				send(Event{Kind: EvLine, Text: line, Style: "thinking"})
-			}
+			send(Event{
+				Kind:  EvLine,
+				Text:  collapseThinking(ev.Reasoning),
+				Style: "thinking-summary",
+			})
 		}
 		if ev.Content != "" {
 			send(Event{Kind: EvSection, Title: i18n.T("llm.output")})
@@ -118,9 +119,9 @@ func RenderAgentEvent(ch chan<- Event, ev AgentEvent) {
 	case AgentToolStart:
 		line := "› " + ev.ToolName
 		if ev.ToolPreview != "" {
-			line += "  " + ev.ToolPreview
+			line += "  " + truncateRunes(ev.ToolPreview, 72)
 		}
-		send(Event{Kind: EvToolStart, Title: i18n.T("tool.call"), Text: line, Style: "tool"})
+		send(Event{Kind: EvToolStart, Text: line, Style: "tool", ToolName: ev.ToolName, ToolPreview: ev.ToolPreview})
 	case AgentToolUpdate:
 		if ev.Text != "" {
 			send(Event{Kind: EvSpinner, Text: ev.Text, Style: "start"})
@@ -128,6 +129,8 @@ func RenderAgentEvent(ch chan<- Event, ev AgentEvent) {
 	case AgentToolEnd:
 		send(Event{
 			Kind:            EvToolDone,
+			ToolName:        ev.ToolName,
+			ToolPreview:     ev.ToolPreview,
 			ToolOK:          ev.ToolOK,
 			ToolDenied:      ev.ToolDenied,
 			ToolResultLines: ev.ToolResultLines,
@@ -145,3 +148,25 @@ func truncateLines(lines []string, max int) []string {
 	}
 	return append(lines[:max], fmt.Sprintf("… (%d more lines)", len(lines)-max))
 }
+
+func truncateRunes(s string, max int) string {
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max-1]) + "…"
+}
+
+func CollapseThinking(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return i18n.T("llm.thinking.done_empty")
+	}
+	lines := 1
+	if n := strings.Count(text, "\n"); n > 0 {
+		lines = n + 1
+	}
+	return fmt.Sprintf(i18n.T("llm.thinking.done"), lines)
+}
+
+func collapseThinking(text string) string { return CollapseThinking(text) }

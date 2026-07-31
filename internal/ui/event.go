@@ -27,6 +27,8 @@ type Event struct {
 	StreamID string // 流式块 ID（如 "2-reasoning"）
 
 	// 工具事件（EvToolStart / EvToolDone）
+	ToolName        string
+	ToolPreview     string // 参数摘要（单行）
 	ToolOK          bool
 	ToolDenied      bool
 	ToolResultLines []string

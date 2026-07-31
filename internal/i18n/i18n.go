@@ -10,6 +10,8 @@ var dict = map[string]pair{
 	"tool.result.fail":              {"执行失败", "Execution failed"},
 	"tool.denied":                   {"已拒绝", "Denied by user"},
 	"llm.thinking":                  {"思考中", "Thinking"},
+	"llm.thinking.done":             {"思考完成 · %d 行", "Thought · %d lines"},
+	"llm.thinking.done_empty":       {"思考完成", "Thought"},
 	"llm.output":                    {"输出", "Output"},
 	"context.compact":               {"上下文压缩", "Context compact"},
 	"context.compact.strategy":      {"策略", "Strategy"},

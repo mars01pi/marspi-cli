@@ -42,6 +42,16 @@ var (
 	replBarStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Background(lipgloss.Color("235"))
 	replBoxStyle        = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240"))
 	replConfirmBoxStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("214")).Padding(0, 1)
+	replBoldStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Bold(true)
+	replCodeStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("81"))
+	replThinkSumStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Italic(true)
+)
+
+// Cursor 风格密度：thinking / tool 默认折叠，突出最终 Output。
+const (
+	replThinkLiveLines   = 2 // 流式思考只显示末尾几行
+	replToolFailPreview  = 3 // 失败时多露几行错误
+	replToolOKPreviewMax = 0 // 成功默认不展开结果
 )
 
 const replConfirmPanelRows = 4
@@ -330,9 +340,25 @@ func (m *replModel) pushUserInput(input string) {
 	m.pushHist("user", input)
 }
 
-func (m *replModel) pushHist(style, text string) {
+func (m *replModel) appendHist(style, text string) {
 	m.histLines = append(m.histLines, histLine{style: style, text: text})
+}
+
+func (m *replModel) pushHist(style, text string) {
+	m.appendHist(style, text)
 	m.rebuildViewport()
+}
+
+func indentStyledLines(style lipgloss.Style, text string, markdown bool) string {
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		if markdown {
+			lines[i] = "  " + ui.RenderInlineMarkdown(line, style, replBoldStyle, replCodeStyle)
+		} else {
+			lines[i] = "  " + style.Render(line)
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m *replModel) styleLine(style, text string) string {
@@ -340,11 +366,17 @@ func (m *replModel) styleLine(style, text string) string {
 	case "section":
 		return replSecStyle.Render("• " + text)
 	case "thinking":
-		return "  " + replThinkStyle.Render(text)
+		return indentStyledLines(replThinkStyle, text, false)
+	case "thinking-summary":
+		return replThinkSumStyle.Render("◦ " + text)
 	case "output":
-		return "  " + replOutStyle.Render(text)
+		return indentStyledLines(replOutStyle, text, true)
 	case "tool":
 		return replToolStyle.Render(text)
+	case "tool-ok":
+		return replOkStyle.Render(text)
+	case "tool-fail":
+		return replErrStyle.Render(text)
 	case "tool-result":
 		return replDimStyle.Render(text)
 	case "debug":
@@ -368,6 +400,19 @@ func (m *replModel) styleLine(style, text string) string {
 	}
 }
 
+func liveStreamTail(text string, maxLines int) string {
+	if maxLines <= 0 || text == "" {
+		return text
+	}
+	lines := strings.Split(text, "\n")
+	if len(lines) <= maxLines {
+		return text
+	}
+	omitted := len(lines) - maxLines
+	tail := strings.Join(lines[len(lines)-maxLines:], "\n")
+	return fmt.Sprintf("… (%d lines above)\n%s", omitted, tail)
+}
+
 func (m *replModel) rebuildViewport() {
 	var b strings.Builder
 	for i, hl := range m.histLines {
@@ -384,11 +429,19 @@ func (m *replModel) rebuildViewport() {
 		if b.Len() > 0 {
 			b.WriteByte('\n')
 		}
-		if ls.title != "" {
-			b.WriteString(m.styleLine("section", ls.title))
+		text := ls.text
+		title := ls.title
+		if ls.style == "thinking" {
+			text = liveStreamTail(text, replThinkLiveLines)
+			if title == "" {
+				title = i18n.T("llm.thinking")
+			}
+		}
+		if title != "" {
+			b.WriteString(m.styleLine("section", title))
 			b.WriteByte('\n')
 		}
-		b.WriteString(m.styleLine(ls.style, ls.text))
+		b.WriteString(m.styleLine(ls.style, text))
 	}
 	m.vp.SetContent(b.String())
 	if m.autoScroll {
@@ -441,18 +494,31 @@ func (m *replModel) flushStream(ev ui.Event) {
 	if ls == nil {
 		return
 	}
-	if ls.title != "" {
-		m.histLines = append(m.histLines, histLine{style: "section", text: ls.title})
-	}
 	text := ls.text
+	style := ls.style
+	if style == "" {
+		style = ev.Style
+	}
+
+	if style == "thinking" {
+		if strings.TrimSpace(text) != "" {
+			m.appendHist("thinking-summary", ui.CollapseThinking(text))
+		}
+		delete(m.live, ev.StreamID)
+		m.streamDirty = true
+		return
+	}
+
+	if ls.title != "" {
+		m.appendHist("section", ls.title)
+	}
 	if text != "" {
 		for _, line := range strings.Split(text, "\n") {
-			m.histLines = append(m.histLines, histLine{style: ls.style, text: line})
+			m.appendHist(style, line)
 		}
 	}
 	delete(m.live, ev.StreamID)
-	m.streamDirty = false
-	m.rebuildViewport()
+	m.streamDirty = true
 }
 
 func (m *replModel) drainAgentEvents(first ui.Event) tea.Cmd {
@@ -468,17 +534,18 @@ func (m *replModel) drainAgentEvents(first ui.Event) tea.Cmd {
 	}
 }
 
-const replToolPreviewMax = 25
-
 func (m *replModel) renderEvent(ev ui.Event) {
 	switch ev.Kind {
 	case ui.EvSection:
-		m.pushHist("section", ev.Title)
+		m.appendHist("section", ev.Title)
+		m.streamDirty = true
 	case ui.EvLine:
-		m.pushHist(ev.Style, ev.Text)
+		m.appendHist(ev.Style, ev.Text)
+		m.streamDirty = true
 	case ui.EvToolStart:
-		m.pushHist("section", ev.Title)
-		m.pushHist(ev.Style, ev.Text)
+		// 不单独占「工具调用」小节；一行进行中状态即可。
+		m.appendHist("tool", ev.Text)
+		m.streamDirty = true
 	case ui.EvToolDone:
 		m.renderToolDone(ev)
 	case ui.EvStreamDelta:
@@ -486,11 +553,14 @@ func (m *replModel) renderEvent(ev ui.Event) {
 	case ui.EvStreamEnd:
 		m.flushStream(ev)
 	case ui.EvError:
-		m.pushHist("error", ev.Text)
+		m.appendHist("error", ev.Text)
+		m.streamDirty = true
 	case ui.EvSuccess:
-		m.pushHist("success", ev.Text)
+		m.appendHist("success", ev.Text)
+		m.streamDirty = true
 	case ui.EvWarning:
-		m.pushHist("warning", ev.Text)
+		m.appendHist("warning", ev.Text)
+		m.streamDirty = true
 	case ui.EvStatus:
 		m.statusBar = ev.Text
 	case ui.EvSpinner:
@@ -503,33 +573,86 @@ func (m *replModel) renderEvent(ev ui.Event) {
 }
 
 func (m *replModel) renderToolDone(ev ui.Event) {
-	lines := ev.ToolResultLines
-	if len(lines) == 0 {
-		m.pushHist("tool-result", "⎿  (no output)")
-	} else {
-		show := lines
-		if len(lines) > replToolPreviewMax {
-			show = lines[:replToolPreviewMax]
+	name := ev.ToolName
+	if name == "" {
+		name = "tool"
+	}
+	fallback := name
+	if p := strings.TrimSpace(ev.ToolPreview); p != "" {
+		fallback += "  " + truncateRunes(p, 72)
+	}
+
+	switch {
+	case ev.ToolDenied:
+		m.upgradeOrAppendTool("tool-fail", "✗ "+fallback)
+		m.appendHist("warning", i18n.T("tool.denied"))
+	case ev.ToolOK:
+		// 成功：一行 ✓ name preview，不展开结果（对齐 Cursor 默认折叠）
+		m.upgradeOrAppendTool("tool-ok", "✓ "+fallback)
+		if replToolOKPreviewMax > 0 {
+			show := ev.ToolResultLines
+			if len(show) > replToolOKPreviewMax {
+				show = show[:replToolOKPreviewMax]
+			}
+			for i, line := range show {
+				prefix := "   "
+				if i == 0 {
+					prefix = "  ⎿  "
+				}
+				m.appendHist("tool-result", prefix+line)
+			}
+		}
+	default:
+		m.upgradeOrAppendTool("tool-fail", "✗ "+fallback)
+		show := ev.ToolResultLines
+		if len(show) > replToolFailPreview {
+			show = show[:replToolFailPreview]
 		}
 		for i, line := range show {
 			prefix := "   "
 			if i == 0 {
-				prefix = "⎿  "
+				prefix = "  ⎿  "
 			}
-			m.pushHist("tool-result", prefix+line)
+			m.appendHist("tool-result", prefix+line)
 		}
-		if len(lines) > replToolPreviewMax {
-			more := len(lines) - replToolPreviewMax
-			m.pushHist("tool-result", fmt.Sprintf("⎿  … and %d more lines (PgUp/PgDn to scroll history)", more))
+		if more := len(ev.ToolResultLines) - len(show); more > 0 {
+			m.appendHist("tool-result", fmt.Sprintf("  ⎿  … %d more lines", more))
 		}
 	}
-	if ev.ToolDenied {
-		m.pushHist("warning", i18n.T("tool.denied"))
-	} else if ev.ToolOK {
-		m.pushHist("success", i18n.T("tool.result.ok"))
-	} else {
-		m.pushHist("error", i18n.T("tool.result.fail"))
+	m.streamDirty = true
+}
+
+// upgradeOrAppendTool 把最近一条 › tool 行改成 ✓/✗，保留参数预览。
+func (m *replModel) upgradeOrAppendTool(style, text string) {
+	for i := len(m.histLines) - 1; i >= 0; i-- {
+		hl := m.histLines[i]
+		if hl.style == "tool" {
+			if strings.HasPrefix(hl.text, "› ") {
+				prefix := "✓ "
+				if style == "tool-fail" {
+					prefix = "✗ "
+				}
+				m.histLines[i] = histLine{style: style, text: prefix + strings.TrimPrefix(hl.text, "› ")}
+				return
+			}
+			m.histLines[i] = histLine{style: style, text: text}
+			return
+		}
+		if hl.style == "tool-ok" || hl.style == "tool-fail" ||
+			hl.style == "output" || hl.style == "section" ||
+			hl.style == "thinking-summary" || hl.style == "user" {
+			break
+		}
 	}
+	m.appendHist(style, text)
+}
+
+func truncateRunes(s string, max int) string {
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max-1]) + "…"
 }
 
 func (m *replModel) startAgent(userInput string) tea.Cmd {
@@ -559,7 +682,8 @@ func (m *replModel) startAgent(userInput string) tea.Cmd {
 		}
 	}()
 
-	return m.listenEvents()
+	// Init/drain 已持有唯一 listenEvents，勿再叠一层。
+	return nil
 }
 
 func (m *replModel) startLoop(input, goal string) (tea.Model, tea.Cmd) {
@@ -580,7 +704,7 @@ func (m *replModel) startLoop(input, goal string) (tea.Model, tea.Cmd) {
 		}
 	}()
 
-	return m, tea.Batch(m.listenEvents())
+	return m, nil
 }
 
 func (m *replModel) startGraphLoop(input, goal string) (tea.Model, tea.Cmd) {
@@ -604,7 +728,7 @@ func (m *replModel) startGraphLoop(input, goal string) (tea.Model, tea.Cmd) {
 		}
 	}()
 
-	return m, tea.Batch(m.listenEvents())
+	return m, nil
 }
 
 func (m *replModel) startDevFlow(input string, req devflowRequest) (tea.Model, tea.Cmd) {
@@ -635,7 +759,7 @@ func (m *replModel) startDevFlow(input string, req devflowRequest) (tea.Model, t
 		}
 	}()
 
-	return m, tea.Batch(m.listenEvents())
+	return m, nil
 }
 
 func (m *replModel) startSupervise(input string, req superviseRequest) (tea.Model, tea.Cmd) {
@@ -666,7 +790,7 @@ func (m *replModel) startSupervise(input string, req superviseRequest) (tea.Mode
 		}
 	}()
 
-	return m, tea.Batch(m.listenEvents())
+	return m, nil
 }
 
 func (m *replModel) flushAllLiveStreams() {
@@ -675,12 +799,18 @@ func (m *replModel) flushAllLiveStreams() {
 		if ls == nil {
 			continue
 		}
+		if ls.style == "thinking" {
+			if strings.TrimSpace(ls.text) != "" {
+				m.appendHist("thinking-summary", ui.CollapseThinking(ls.text))
+			}
+			continue
+		}
 		if ls.title != "" {
-			m.histLines = append(m.histLines, histLine{style: "section", text: ls.title})
+			m.appendHist("section", ls.title)
 		}
 		if ls.text != "" {
 			for _, line := range strings.Split(ls.text, "\n") {
-				m.histLines = append(m.histLines, histLine{style: ls.style, text: line})
+				m.appendHist(ls.style, line)
 			}
 		}
 	}
@@ -700,7 +830,10 @@ func (m *replModel) finishAgent() {
 	m.spinText = ""
 	m.agentCancel = nil
 	m.flushAllLiveStreams()
-	m.statusBar = replHelpHint
+	// 保留最后一轮 token 状态，比立刻盖回 help hint 更有用。
+	if !strings.HasPrefix(m.statusBar, "round ") {
+		m.statusBar = replHelpHint
+	}
 	m.installUIHooks()
 }
 
@@ -731,7 +864,7 @@ func (m *replModel) submit() (tea.Model, tea.Cmd) {
 	if input == "/stop" || input == "/s" {
 		m.pushUserInput(input)
 		m.pushHist("warning", "No task running.")
-		return m, m.listenEvents()
+		return m, nil
 	}
 
 	if req, ok := parseDevflowRequest(input); ok {
@@ -755,7 +888,7 @@ func (m *replModel) submit() (tea.Model, tea.Cmd) {
 	}
 	if handled {
 		m.pushUserInput(input)
-		return m, m.listenEvents()
+		return m, nil
 	}
 
 	logx.Debugf("user input: %q", input)
@@ -830,7 +963,7 @@ func (m *replModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case agentDoneMsg:
 		m.finishAgent()
-		return m, m.listenEvents()
+		return m, nil
 
 	case tea.MouseMsg:
 		if msg.Type == tea.MouseWheelUp {

@@ -12,8 +12,6 @@ import (
 	"github.com/mars/marspi-cli/internal/i18n"
 )
 
-const tuiToolPreviewMax = 25
-
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 func stripANSI(s string) string { return ansi.Strip(s) }
@@ -75,7 +73,8 @@ func (p *Printer) writeLineLocked(text string) {
 	if p.stdoutEnabled() {
 		fmt.Fprintln(os.Stdout, text)
 	}
-	p.emit(Event{Kind: EvLine, Text: text, Style: "dim"})
+	// TUI 侧必须收到无 ANSI 的纯文本，否则 lipgloss 宽度计算与叠色会乱。
+	p.emit(Event{Kind: EvLine, Text: stripANSI(text), Style: "dim"})
 	if p.running && p.stdoutEnabled() {
 		p.renderFrame("⠋")
 	}
@@ -93,18 +92,22 @@ func (p *Printer) Section(title string) {
 	p.writeLineLocked(C("• "+title, Orange))
 }
 
-// ToolCall 打印工具调用抬头。
+// ToolCall 打印工具调用抬头。TUI 由 agent 事件渲染，此处静默以免双份刷屏。
 func (p *Printer) ToolCall(name, desc string) {
-	p.Section(i18n.T("tool.call"))
-	line := C("› ", Grey) + C(name, Cyan) + "  " + C(desc, Grey)
-	p.emit(Event{Kind: EvLine, Text: "› " + name + "  " + desc, Style: "tool"})
-	if p.stdoutEnabled() {
-		p.writeLine(line)
+	if p.TUIMode() {
+		return
 	}
+	p.Section(i18n.T("tool.call"))
+	line := "› " + name + "  " + desc
+	p.emit(Event{Kind: EvLine, Text: line, Style: "tool"})
+	p.writeLineStdout(C("› ", Grey) + C(name, Cyan) + "  " + C(desc, Grey))
 }
 
 // ToolResult 打印工具执行结果标记。
 func (p *Printer) ToolResult(ok bool) {
+	if p.TUIMode() {
+		return
+	}
 	key := "tool.result.ok"
 	icon, color := "✓", Green
 	if !ok {
@@ -116,61 +119,52 @@ func (p *Printer) ToolResult(ok bool) {
 	} else {
 		p.emit(Event{Kind: EvError, Text: msg})
 	}
-	if !p.stdoutEnabled() {
-		return
-	}
-	p.mu.Lock()
-	p.writeLineLocked("  " + C(icon, color) + C(msg, Grey))
-	p.mu.Unlock()
+	p.writeLineStdout("  " + C(icon, color) + C(msg, Grey))
 }
 
 // ToolPreview 打印工具 stdout 预览（对齐 ⎿ 前缀格式）。
 func (p *Printer) ToolPreview(lines []string) {
-	total := len(lines)
-	tui := p.TUIMode()
-	if tui {
-		for i := range lines {
-			lines[i] = stripANSI(lines[i])
-		}
-	}
-	if tui && total > tuiToolPreviewMax {
-		lines = lines[:tuiToolPreviewMax]
+	if p.TUIMode() {
+		return
 	}
 	if len(lines) == 0 {
 		p.emit(Event{Kind: EvLine, Text: "⎿  (no output)", Style: "tool-result"})
-		if p.stdoutEnabled() {
-			p.mu.Lock()
-			p.writeLineLocked("  " + C("⎿  (no output)", Dim))
-			p.mu.Unlock()
-		}
+		p.writeLineStdout("  " + C("⎿  (no output)", Dim))
 		return
 	}
 	for i, line := range lines {
 		if i == 0 {
 			p.emit(Event{Kind: EvLine, Text: "⎿  " + line, Style: "tool-result"})
+			p.writeLineStdout("  " + C("⎿  "+line, Dim))
 		} else {
 			p.emit(Event{Kind: EvLine, Text: "   " + line, Style: "tool-result"})
+			p.writeLineStdout("     " + C(line, Dim))
 		}
-		if !p.stdoutEnabled() {
-			continue
-		}
-		p.mu.Lock()
-		if i == 0 {
-			p.writeLineLocked("  " + C("⎿  "+line, Dim))
-		} else {
-			p.writeLineLocked("     " + C(line, Dim))
-		}
-		p.mu.Unlock()
 	}
-	if tui && total > tuiToolPreviewMax {
-		more := total - tuiToolPreviewMax
-		hint := fmt.Sprintf("⎿  … and %d more lines (PgUp/PgDn to scroll history)", more)
-		p.emit(Event{Kind: EvLine, Text: hint, Style: "tool-result"})
-		if p.stdoutEnabled() {
-			p.mu.Lock()
-			p.writeLineLocked("  " + C(hint, Dim))
-			p.mu.Unlock()
-		}
+}
+
+// Thinking 打印模型思考内容。
+func (p *Printer) Thinking(content string) {
+	if p.TUIMode() {
+		return
+	}
+	p.Section(i18n.T("llm.thinking"))
+	for _, line := range strings.Split(content, "\n") {
+		line = stripANSI(line)
+		p.emit(Event{Kind: EvLine, Text: line, Style: "thinking"})
+		p.writeLine("  " + C(line, Grey))
+	}
+}
+
+// Output 打印模型输出内容。
+func (p *Printer) Output(content string) {
+	if p.TUIMode() {
+		return
+	}
+	p.Section(i18n.T("llm.output"))
+	for _, line := range strings.Split(content, "\n") {
+		p.emit(Event{Kind: EvLine, Text: line, Style: "output"})
+		p.writeLine("  " + C(line, Soft))
 	}
 }
 
@@ -178,7 +172,7 @@ func (p *Printer) ToolPreview(lines []string) {
 func (p *Printer) Error(msg string) {
 	p.emit(Event{Kind: EvError, Text: msg})
 	if p.stdoutEnabled() {
-		p.writeLine(C("✗ ", Red) + C(msg, Grey))
+		p.writeLineStdout(C("✗ ", Red) + C(msg, Grey))
 	}
 }
 
@@ -186,7 +180,7 @@ func (p *Printer) Error(msg string) {
 func (p *Printer) Warning(msg string) {
 	p.emit(Event{Kind: EvWarning, Text: msg})
 	if p.stdoutEnabled() {
-		p.writeLine(C("! ", Yellow) + C(msg, Grey))
+		p.writeLineStdout(C("! ", Yellow) + C(msg, Grey))
 	}
 }
 
@@ -194,55 +188,43 @@ func (p *Printer) Warning(msg string) {
 func (p *Printer) Success(msg string) {
 	p.emit(Event{Kind: EvSuccess, Text: msg})
 	if p.stdoutEnabled() {
-		p.writeLine(C("✓ ", Green) + C(msg, Grey))
+		p.writeLineStdout(C("✓ ", Green) + C(msg, Grey))
 	}
 }
 
 // Text 打印灰色文本。
-func (p *Printer) Text(msg string) { p.writeLine(C(msg, Grey)) }
+func (p *Printer) Text(msg string) {
+	p.emit(Event{Kind: EvLine, Text: msg, Style: "dim"})
+	if p.stdoutEnabled() {
+		p.writeLineStdout(C(msg, Grey))
+	}
+}
+
+// writeLineStdout 只写 stdout，不再二次 emit（调用方已 emit 过干净文本）。
+func (p *Printer) writeLineStdout(text string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.running {
+		clearSpinnerLine()
+	}
+	fmt.Fprintln(os.Stdout, text)
+	if p.running {
+		p.renderFrame("⠋")
+	}
+}
 
 // RoundMarker 在 TUI 中标记 agent 迭代轮次。
 func (p *Printer) RoundMarker(n int) {
 	text := fmt.Sprintf("── round %d ──", n)
 	p.emit(Event{Kind: EvLine, Text: text, Style: "round"})
-	if !p.stdoutEnabled() {
-		return
+	if p.stdoutEnabled() {
+		p.writeLineStdout(C(text, Grey))
 	}
-	p.mu.Lock()
-	p.writeLineLocked(C(text, Grey))
-	p.mu.Unlock()
 }
 
 // Separator 打印分隔线。
 func (p *Printer) Separator() {
 	p.writeLine(Dim + strings.Repeat("─", 80) + Reset)
-}
-
-// Thinking 打印模型思考内容。
-func (p *Printer) Thinking(content string) {
-	p.Section(i18n.T("llm.thinking"))
-	lines := strings.Split(content, "\n")
-	if p.TUIMode() && len(lines) > 30 {
-		lines = append(lines[:30], fmt.Sprintf("… (%d more lines)", len(lines)-30))
-	}
-	for _, line := range lines {
-		line = stripANSI(line)
-		p.emit(Event{Kind: EvLine, Text: line, Style: "thinking"})
-		if p.stdoutEnabled() {
-			p.writeLine("  " + C(line, Grey))
-		}
-	}
-}
-
-// Output 打印模型输出内容。
-func (p *Printer) Output(content string) {
-	p.Section(i18n.T("llm.output"))
-	for _, line := range strings.Split(content, "\n") {
-		p.emit(Event{Kind: EvLine, Text: line, Style: "output"})
-		if p.stdoutEnabled() {
-			p.writeLine("  " + C(line, Soft))
-		}
-	}
 }
 
 func fmtK(n int) string {

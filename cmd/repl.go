@@ -25,7 +25,7 @@ const (
 	replStatusRows   = 1
 )
 
-const replHelpHint = "Enter send · Shift+Enter newline · PgUp/PgDn scroll · Esc stop"
+const replHelpHint = "Enter send · Ctrl+B thought · PgUp/PgDn scroll · Esc stop"
 
 var (
 	replUserStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)
@@ -66,9 +66,14 @@ type confirmRequestMsg struct {
 }
 type tickMsg time.Time
 
-type histLine struct {
+type histItem struct {
 	style string
 	text  string
+
+	// kind=="think"：可折叠思考块；text 为摘要，body 为全文。
+	kind     string
+	body     string
+	expanded bool
 }
 
 type liveStream struct {
@@ -87,7 +92,7 @@ type replModel struct {
 
 	vp        viewport.Model
 	ta        textarea.Model
-	histLines []histLine
+	histItems []histItem
 	live      map[string]*liveStream
 	width     int
 	height    int
@@ -341,12 +346,43 @@ func (m *replModel) pushUserInput(input string) {
 }
 
 func (m *replModel) appendHist(style, text string) {
-	m.histLines = append(m.histLines, histLine{style: style, text: text})
+	m.histItems = append(m.histItems, histItem{style: style, text: text})
+}
+
+func (m *replModel) appendThink(body string) {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return
+	}
+	m.histItems = append(m.histItems, histItem{
+		kind:     "think",
+		style:    "thinking-summary",
+		text:     ui.CollapseThinking(body),
+		body:     body,
+		expanded: false,
+	})
 }
 
 func (m *replModel) pushHist(style, text string) {
 	m.appendHist(style, text)
 	m.rebuildViewport()
+}
+
+func (m *replModel) toggleLastThink() bool {
+	for i := len(m.histItems) - 1; i >= 0; i-- {
+		if m.histItems[i].kind == "think" {
+			m.histItems[i].expanded = !m.histItems[i].expanded
+			m.autoScroll = false
+			m.rebuildViewport()
+			if m.histItems[i].expanded {
+				m.statusBar = "Thought expanded · Ctrl+B collapse"
+			} else if !strings.HasPrefix(m.statusBar, "round ") {
+				m.statusBar = replHelpHint
+			}
+			return true
+		}
+	}
+	return false
 }
 
 func indentStyledLines(style lipgloss.Style, text string, markdown bool) string {
@@ -368,7 +404,7 @@ func (m *replModel) styleLine(style, text string) string {
 	case "thinking":
 		return indentStyledLines(replThinkStyle, text, false)
 	case "thinking-summary":
-		return replThinkSumStyle.Render("◦ " + text)
+		return replThinkSumStyle.Render(text)
 	case "output":
 		return indentStyledLines(replOutStyle, text, true)
 	case "tool":
@@ -400,6 +436,21 @@ func (m *replModel) styleLine(style, text string) string {
 	}
 }
 
+func (m *replModel) renderHistItem(item histItem) string {
+	if item.kind == "think" {
+		chevron := "▸"
+		if item.expanded {
+			chevron = "▾"
+		}
+		head := m.styleLine("thinking-summary", chevron+" "+item.text)
+		if !item.expanded {
+			return head
+		}
+		return head + "\n" + indentStyledLines(replThinkStyle, item.body, false)
+	}
+	return m.styleLine(item.style, item.text)
+}
+
 func liveStreamTail(text string, maxLines int) string {
 	if maxLines <= 0 || text == "" {
 		return text
@@ -415,11 +466,11 @@ func liveStreamTail(text string, maxLines int) string {
 
 func (m *replModel) rebuildViewport() {
 	var b strings.Builder
-	for i, hl := range m.histLines {
+	for i, item := range m.histItems {
 		if i > 0 {
 			b.WriteByte('\n')
 		}
-		b.WriteString(m.styleLine(hl.style, hl.text))
+		b.WriteString(m.renderHistItem(item))
 	}
 	for _, id := range m.sortedLiveIDs() {
 		ls := m.live[id]
@@ -501,9 +552,7 @@ func (m *replModel) flushStream(ev ui.Event) {
 	}
 
 	if style == "thinking" {
-		if strings.TrimSpace(text) != "" {
-			m.appendHist("thinking-summary", ui.CollapseThinking(text))
-		}
+		m.appendThink(text)
 		delete(m.live, ev.StreamID)
 		m.streamDirty = true
 		return
@@ -540,7 +589,15 @@ func (m *replModel) renderEvent(ev ui.Event) {
 		m.appendHist("section", ev.Title)
 		m.streamDirty = true
 	case ui.EvLine:
-		m.appendHist(ev.Style, ev.Text)
+		if ev.Style == "thinking-summary" {
+			body := ev.Body
+			if body == "" {
+				body = ev.Text
+			}
+			m.appendThink(body)
+		} else {
+			m.appendHist(ev.Style, ev.Text)
+		}
 		m.streamDirty = true
 	case ui.EvToolStart:
 		// 不单独占「工具调用」小节；一行进行中状态即可。
@@ -624,23 +681,26 @@ func (m *replModel) renderToolDone(ev ui.Event) {
 
 // upgradeOrAppendTool 把最近一条 › tool 行改成 ✓/✗，保留参数预览。
 func (m *replModel) upgradeOrAppendTool(style, text string) {
-	for i := len(m.histLines) - 1; i >= 0; i-- {
-		hl := m.histLines[i]
+	for i := len(m.histItems) - 1; i >= 0; i-- {
+		hl := m.histItems[i]
+		if hl.kind == "think" {
+			break
+		}
 		if hl.style == "tool" {
 			if strings.HasPrefix(hl.text, "› ") {
 				prefix := "✓ "
 				if style == "tool-fail" {
 					prefix = "✗ "
 				}
-				m.histLines[i] = histLine{style: style, text: prefix + strings.TrimPrefix(hl.text, "› ")}
+				m.histItems[i] = histItem{style: style, text: prefix + strings.TrimPrefix(hl.text, "› ")}
 				return
 			}
-			m.histLines[i] = histLine{style: style, text: text}
+			m.histItems[i] = histItem{style: style, text: text}
 			return
 		}
 		if hl.style == "tool-ok" || hl.style == "tool-fail" ||
 			hl.style == "output" || hl.style == "section" ||
-			hl.style == "thinking-summary" || hl.style == "user" {
+			hl.style == "user" {
 			break
 		}
 	}
@@ -800,9 +860,7 @@ func (m *replModel) flushAllLiveStreams() {
 			continue
 		}
 		if ls.style == "thinking" {
-			if strings.TrimSpace(ls.text) != "" {
-				m.appendHist("thinking-summary", ui.CollapseThinking(ls.text))
-			}
+			m.appendThink(ls.text)
 			continue
 		}
 		if ls.title != "" {
@@ -995,6 +1053,11 @@ func (m *replModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.scrollHistory(true, m.vp.Height)
 		case "pgdown", "ctrl+d":
 			return m.scrollHistory(false, m.vp.Height)
+		case "ctrl+b":
+			if !m.toggleLastThink() {
+				m.statusBar = "No thought block to expand"
+			}
+			return m, nil
 		}
 
 		if m.running {

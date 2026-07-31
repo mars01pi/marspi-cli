@@ -26,6 +26,9 @@ type Event struct {
 
 	StreamID string // 流式块 ID（如 "2-reasoning"）
 
+	// Body 用于可折叠块（如 thinking 全文）；Text 为折叠标题。
+	Body string
+
 	// 工具事件（EvToolStart / EvToolDone）
 	ToolName        string
 	ToolPreview     string // 参数摘要（单行）

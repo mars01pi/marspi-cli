@@ -106,8 +106,9 @@ func RenderAgentEvent(ch chan<- Event, ev AgentEvent) {
 		if ev.Reasoning != "" {
 			send(Event{
 				Kind:  EvLine,
-				Text:  collapseThinking(ev.Reasoning),
+				Text:  CollapseThinking(ev.Reasoning),
 				Style: "thinking-summary",
+				Body:  ev.Reasoning,
 			})
 		}
 		if ev.Content != "" {
@@ -168,5 +169,3 @@ func CollapseThinking(text string) string {
 	}
 	return fmt.Sprintf(i18n.T("llm.thinking.done"), lines)
 }
-
-func collapseThinking(text string) string { return CollapseThinking(text) }

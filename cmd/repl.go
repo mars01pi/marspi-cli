@@ -268,6 +268,9 @@ func (a *App) runTUI(ctx *agentctx.Manager, ctxFile, systemPrompt string) error 
 		mode = fmt.Sprintf("smart-routing[%d]", a.routed.TotalProviders())
 	}
 	header := fmt.Sprintf("Marspi Cli v%s · %s · %s", config.Version, mode, a.cfg.ProjectRoot)
+	if n := len(a.cfg.WorkspaceRoots()); n > 1 {
+		header += fmt.Sprintf(" · roots=%d", n)
+	}
 	if logx.Enabled() {
 		header += " · debug"
 	}

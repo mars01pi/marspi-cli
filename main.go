@@ -16,7 +16,11 @@ func main() {
 
 	versionFlag := flag.Bool("version", false, "print version and exit")
 	doctorFlag := flag.Bool("doctor", false, "run environment diagnostics and exit")
+	var addDirs stringListFlag
+	flag.Var(&addDirs, "add-dir", "add workspace root for file tools (repeatable)")
 	flag.Parse()
+
+	cfg.AddExtraDirs(addDirs...)
 
 	if *versionFlag {
 		fmt.Printf("marspi-cli v%s\n", config.Version)

@@ -78,6 +78,12 @@ func Doctor(cfg *config.Config) int {
 			fails++
 		}
 	}
+
+	roots := cfg.WorkspaceRoots()
+	console.Success("workspace roots: " + itoa(len(roots)))
+	for _, r := range roots {
+		console.Text("  " + r)
+	}
 	return fails
 }
 

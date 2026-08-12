@@ -28,7 +28,7 @@ func (a *App) runDevFlowEngine(ctx context.Context, req devflowRequest) {
 		ctx = context.Background()
 	}
 
-	cp, dbPath, err := openSupervisorCheckpointer()
+	cp, dbPath, err := a.openSupervisorCheckpointer()
 	if err != nil {
 		a.console.Error("Checkpoint DB: " + err.Error())
 		return

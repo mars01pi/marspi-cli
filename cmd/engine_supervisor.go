@@ -31,7 +31,7 @@ func (a *App) runSupervisorEngine(ctx context.Context, req superviseRequest, max
 		ctx = context.Background()
 	}
 
-	cp, dbPath, err := openSupervisorCheckpointer()
+	cp, dbPath, err := a.openSupervisorCheckpointer()
 	if err != nil {
 		a.console.Error("Checkpoint DB: " + err.Error())
 		return
@@ -121,17 +121,13 @@ func (a *App) listSupervisorCheckpoints(ctx context.Context, cp *checkpoint.SQLi
 	}
 }
 
-func openSupervisorCheckpointer() (*checkpoint.SQLite, string, error) {
-	dir := ".marspicli"
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, "", err
-	}
-	path := filepath.Join(dir, "checkpoints.db")
+func (a *App) openSupervisorCheckpointer() (*checkpoint.SQLite, string, error) {
+	path := filepath.Join(a.cfg.BasePersist, "checkpoints.db")
 	if env := strings.TrimSpace(os.Getenv("MARSPI_CHECKPOINT_DB")); env != "" {
 		path = env
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return nil, "", err
-		}
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, "", err
 	}
 	cp, err := checkpoint.OpenSQLite(path)
 	if err != nil {

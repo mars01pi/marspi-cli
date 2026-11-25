@@ -7,8 +7,8 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/charmbracelet/x/ansi v0.11.6
-	github.com/mars/marspi-core v0.0.0
-	github.com/mars/marspi-graph v0.0.0
+	github.com/mars/marspi-core v1.0.0
+	github.com/mars/marspi-graph v0.0.0-20260730074654-1d1241fd9613
 	github.com/mattn/go-isatty v0.0.20
 )
 
@@ -51,6 +51,6 @@ require (
 	modernc.org/sqlite v1.53.0 // indirect
 )
 
-replace github.com/mars/marspi-core => ../marspi-core
+replace github.com/mars/marspi-core => github.com/mars01pi/marspi-core v1.0.0
 
-replace github.com/mars/marspi-graph => ../marspi-graph
+replace github.com/mars/marspi-graph => github.com/mars01pi/marspi-graph v0.0.0-20260730074654-1d1241fd9613

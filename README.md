@@ -88,6 +88,8 @@ export MARS_MODEL=deepseek-v4-flash
 
 CLI 负责读取 `MARS_*` 配置、装配系统提示词和管理会话文件。普通模式、TUI 和 `/loop` 都调用 Core 的 `agent.Run`，运行结束（包括取消）后由 CLI 保存一次会话。`session.json` 沿用原有消息数组格式，并支持从旧 `.tmp` 文件恢复；`/new` 备份后立即保存新会话，`/compact` 成功后立即保存。提示词只为当前已注册的工具生成使用指引。
 
+CLI 在 `internal/tools` 中显式装配文件、Shell、搜索、记忆、技能、RAG、图片和完成工具；Core 提供工具协议、schema、注册表、执行、取消和 provider 生命周期。
+
 Supervisor（`/sv`）与 DevFlow（`/df`）会把 graph Snapshot 写入 checkpoints.db。Esc 中断或 HITL 挂起后可用 `/sv resume` / `/df resume <threadID>` 跨进程续跑（只恢复图状态，不恢复 agent 对话；见 marspi-graph ADR 0004）。`/sv list` / `/df list` 列出可续跑线程。
 
 DevFlow（`/df` / `/devflow`）加载内置 Design→Develop→Review→Test→Push Spec（或 `--workflow path.yaml`）。Push 前 Confirm；`--no-push` 只改代码不推送。
@@ -154,6 +156,7 @@ marspi-cli/
 │   ├── flashext/           # OpenAI 兼容代理服务
 │   ├── prompt/             # 系统提示词
 │   ├── session/            # JSON 会话存储、恢复与备份
+│   ├── tools/              # CLI 内置工具与显式工具装配
 │   ├── i18n/               # 国际化 (en/zh)
 │   └── ui/                 # TUI 事件 + Printer + Hooks
 └── .marspicli/             # 持久化目录

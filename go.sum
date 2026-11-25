@@ -48,6 +48,10 @@ github.com/hashicorp/golang-lru/v2 v2.0.7 h1:a+bsQ5rvGLjzHuww6tVxozPZFVghXaHOwFs
 github.com/hashicorp/golang-lru/v2 v2.0.7/go.mod h1:QeFd9opnmA6QUJc5vARoKUSoFhyfM2/ZepoAG6RGpeM=
 github.com/lucasb-eyer/go-colorful v1.3.0 h1:2/yBRLdWBZKrf7gB40FoiKfAWYQ0lqNcbuQwVHXptag=
 github.com/lucasb-eyer/go-colorful v1.3.0/go.mod h1:R4dSotOR9KMtayYi1e77YzuveK+i7ruzyGqttikkLy0=
+github.com/mars01pi/marspi-core v1.0.0 h1:vdlb/zeouaOXjlCK+DYX+q1FMR0KNyuP50XEZgSLBHw=
+github.com/mars01pi/marspi-core v1.0.0/go.mod h1:h9IOucX9uurvUsQk7NQoZyjiU7+5CpnDQY308siqNQI=
+github.com/mars01pi/marspi-graph v0.0.0-20260730074654-1d1241fd9613 h1:yzWl+AgitGEFmhjT0FKSPLiJM1zJYuP2j3jS7jCY2Vg=
+github.com/mars01pi/marspi-graph v0.0.0-20260730074654-1d1241fd9613/go.mod h1:2clo1yuhpdybrxXqzBIgiyJB6wYxnHi7C3JfCnfBjIs=
 github.com/mattn/go-isatty v0.0.20 h1:xfD0iDuEKnDkl03q4limB+vH+GxLEtL/jb4xVJSWWEY=
 github.com/mattn/go-isatty v0.0.20/go.mod h1:W+V8PltTTMOvKvAeJH7IuucS94S2C6jfK/D7dTCTo3Y=
 github.com/mattn/go-localereader v0.0.1 h1:ygSAOl7ZXTx4RdPYinUpg6W99U8jWvWi9Ye2JC/oIi4=

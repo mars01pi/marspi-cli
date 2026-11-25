@@ -81,21 +81,8 @@ export MARS_MODEL=deepseek-v4-flash
 | `MARS_DEBUG` | — | `=1` 开启调试日志（TUI 内嵌显示） |
 | `MARS_PLAIN` | — | `=1` 禁用 TUI，使用单行 REPL |
 | `MARS_STREAM` | `1` | `=1`/`on` 启用 SSE 流式输出；`0`/`off` 回退非流式 |
-| `MARS_EXTRA_DIRS` | — | 额外 workspace 根（`,` 或 `:` 分隔），如 `../marspi-core,../marspi-graph` |
-| `MARS_OUTSIDE_READ` | `ask` | 根外读：`allow` / `ask` / `deny` |
-| `MARS_OUTSIDE_WRITE` | `deny` | 根外写：`ask` / `deny` |
 | `MARSPI_CHECKPOINT_DB` | `.marspicli/checkpoints.db` | Supervisor / DevFlow 图检查点 SQLite 路径 |
 | `MARSPI_DEVFLOW_ALLOW_PUSH` | `true` | `=0`/`false` 时 DevFlow 跳过 push（等同 `--no-push`） |
-
-CLI 也可重复传入 `--add-dir <path>`（与 `MARS_EXTRA_DIRS` 合并）。多仓 sibling 推荐：
-
-```bash
-./marspi-cli --add-dir ../marspi-core --add-dir ../marspi-graph
-# 或
-export MARS_EXTRA_DIRS=../marspi-core,../marspi-graph
-```
-
-文件工具（read/write/edit/search/grep/view_image）受 workspace roots 约束：根内自动放行；根外读默认确认一次（session 缓存前缀）；根外写默认拒绝。bash 暂不做路径沙箱，仍按危险命令 Confirm。
 
 持久化目录：`<cwd>/.marspicli/`（session、memory、loops、providers.json、checkpoints.db）
 
@@ -179,6 +166,8 @@ marspi-cli/
 ---
 
 ## 🛠 开发
+
+构建需要 Go 1.25 或更新版本。`marspi-core` 和 `marspi-graph` 使用 `go.mod` 中锁定的 GitHub 版本，无需克隆到相邻目录。
 
 ```bash
 make test    # 运行测试

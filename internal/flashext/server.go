@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mars/marspi-cli/internal/config"
 	"github.com/mars/marspi-core/agentctx"
-	"github.com/mars/marspi-core/config"
 	"github.com/mars/marspi-core/flash"
 	"github.com/mars/marspi-core/llm"
 	"github.com/mars/marspi-core/memory"

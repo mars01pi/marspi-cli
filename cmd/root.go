@@ -9,16 +9,18 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/mars/marspi-cli/internal/config"
 	"github.com/mars/marspi-cli/internal/i18n"
+	"github.com/mars/marspi-cli/internal/prompt"
+	"github.com/mars/marspi-cli/internal/session"
 	"github.com/mars/marspi-cli/internal/ui"
 	"github.com/mars/marspi-core/agent"
 	"github.com/mars/marspi-core/agentctx"
-	"github.com/mars/marspi-core/config"
+	coreconfig "github.com/mars/marspi-core/config"
 	"github.com/mars/marspi-core/llm"
 	"github.com/mars/marspi-core/logx"
 	"github.com/mars/marspi-core/mcp"
 	"github.com/mars/marspi-core/memory"
-	"github.com/mars/marspi-core/prompt"
 	"github.com/mars/marspi-core/skill"
 	"github.com/mars/marspi-core/tool"
 	"github.com/mattn/go-isatty"
@@ -49,7 +51,12 @@ func NewApp(cfg *config.Config) *App {
 	skills := skill.New(nil)
 	skills.AddBasePath(filepath.Join(cfg.BasePersist, "skills"))
 
-	registry := tool.NewRegistry(cfg, console, mem, skills)
+	registry := tool.NewRegistry(&coreconfig.Config{
+		ProjectRoot: cfg.ProjectRoot,
+		RAGURL:      cfg.RAGURL,
+		RAGAPIKey:   cfg.RAGAPIKey,
+		RAGTopK:     cfg.RAGTopK,
+	}, console, mem, skills)
 	if cfg.MCPEnabled {
 		if mcpCfg, err := mcp.LoadMergedConfig(cfg.ProjectRoot); err != nil {
 			console.Warning("Failed to load MCP config, MCP disabled: " + err.Error())
@@ -71,7 +78,12 @@ func NewApp(cfg *config.Config) *App {
 			console.Warning("Failed to load " + cfg.ProvidersFile + ", falling back to single provider")
 		}
 	}
-	sys := prompt.NewSystem(cfg, skills)
+	sys := prompt.New(prompt.Options{
+		ProjectRoot:       cfg.ProjectRoot,
+		RulesPath:         filepath.Join(cfg.BasePersist, "MARS.md"),
+		SkillDescriptions: skills.Descriptions(),
+		ToolNames:         registry.Names(),
+	})
 
 	runner := &agent.Runner{
 		Provider:   provider,
@@ -106,12 +118,10 @@ func (a *App) Run() error {
 	}
 
 	ctxFile := filepath.Join(a.cfg.SessionDir, "session.json")
-	ctx := agentctx.New(a.cfg.MaxContext, a.provider, a.registry.Schemas(), a.console)
-	ctx.Load(ctxFile)
-
 	systemPrompt := a.prompt.Assemble()
-	if ctx.Len() == 0 {
-		ctx.AppendSystem(systemPrompt)
+	ctx, err := a.newSession(ctxFile, systemPrompt)
+	if err != nil {
+		return err
 	}
 
 	if os.Getenv("MARS_PLAIN") == "1" || !isatty.IsTerminal(os.Stdin.Fd()) {
@@ -160,9 +170,9 @@ func (a *App) runPlain(ctx *agentctx.Manager, ctxFile, systemPrompt string) erro
 		if a.routed != nil {
 			a.routed.Route(userInput, ctx.ToolFingerprint(10))
 		}
-		a.runner.Loop(ctx, ctxFile, normal)
-		ctx.ClearRuntimeInjections()
-		_ = ctx.Save(ctxFile)
+		if err := a.runSession(context.Background(), ctx, ctxFile, normal); err != nil {
+			a.console.Error(err.Error())
+		}
 	}
 	return nil
 }
@@ -180,14 +190,24 @@ func (a *App) handleCommand(userInput string, ctx *agentctx.Manager, ctxFile, sy
 	case userInput == "/c" || userInput == "/compact":
 		if err := ctx.FullCompact(); err != nil {
 			a.console.Error(err.Error())
+		} else if err := (session.File{Path: ctxFile}).Save(ctx.Messages); err != nil {
+			a.console.Error("save session: " + err.Error())
 		} else {
 			a.console.Success("Full compact success.")
 		}
 		return true, false
 	case userInput == "/n" || userInput == "/new":
-		ctx.Backup(ctxFile)
+		if _, err := (session.File{Path: ctxFile}).Backup(); err != nil {
+			a.console.Error("back up session: " + err.Error())
+			return true, false
+		}
 		ctx.Clear()
+		ctx.ClearRuntimeInjections()
 		ctx.AppendSystem(systemPrompt)
+		if err := (session.File{Path: ctxFile}).Save(ctx.Messages); err != nil {
+			a.console.Error("save session: " + err.Error())
+			return true, false
+		}
 		a.console.Success("New session created.")
 		return true, false
 	case userInput == "/h" || userInput == "/help":
@@ -253,7 +273,7 @@ func (a *App) handleCommand(userInput string, ctx *agentctx.Manager, ctxFile, sy
 		}
 		a.console.Success("🎯 Loop: " + goal)
 		if !a.console.TUIMode() {
-			a.runLoopEngine(goal, 5)
+			a.runLoopEngine(context.Background(), goal, 5)
 		}
 		return true, false
 	}

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -13,16 +14,15 @@ import (
 
 // runLoopEngine 实现 3-agent 协作：Implementer + Verifier + Updater。
 // 对齐 mangopi 的 loop_engine。
-func (a *App) runLoopEngine(goal string, maxIter int) {
+func (a *App) runLoopEngine(runCtx context.Context, goal string, maxIter int) {
 	systemPrompt := a.prompt.Assemble()
 	var loopFiles []string
 
-	newCtx := func(loopType string) (*agentctx.Manager, string) {
+	newCtx := func(loopType string) (*agentctx.Manager, string, error) {
 		id := fmt.Sprintf("loop_%d_%d", time.Now().UnixNano(), os.Getpid())
 		file := filepath.Join(a.cfg.LoopsDir, loopType+"_"+id+".json")
-		c := agentctx.New(a.cfg.MaxContext, a.provider, a.registry.Schemas(), a.console)
-		c.Load(file)
-		return c, file
+		history, err := a.newSession(file, systemPrompt)
+		return history, file, err
 	}
 
 	defer func() {
@@ -31,12 +31,15 @@ func (a *App) runLoopEngine(goal string, maxIter int) {
 		}
 	}()
 
-	implCtx, implFile := newCtx("implementer")
-	implCtx.AppendSystem(systemPrompt)
+	implCtx, implFile, err := newCtx("implementer")
+	if err != nil {
+		a.console.Error(err.Error())
+		return
+	}
 	loopFiles = append(loopFiles, implFile)
 
 	for iteration := 1; iteration <= maxIter; iteration++ {
-		a.runner.Loop(implCtx, implFile, fmt.Sprintf(
+		if err := a.runSession(runCtx, implCtx, implFile, fmt.Sprintf(
 			"[Loop iter %d/%d]\n"+
 				"GOAL: %s\n\n"+
 				"You are the IMPLEMENTER. Design + write code.\n"+
@@ -48,13 +51,19 @@ func (a *App) runLoopEngine(goal string, maxIter int) {
 				"6. When calling edit/write, briefly explain WHY in your thinking.\n"+
 				"7. Call `attempt_completion` tool when done.\n\n"+
 				"DO NOT run tests or verify your own code. That's the Verifier's job.",
-			iteration, maxIter, goal))
+			iteration, maxIter, goal)); err != nil {
+			a.console.Error(err.Error())
+			return
+		}
 		implFiles := changedFiles(implCtx)
 
-		verCtx, verFile := newCtx("verifier")
-		verCtx.AppendSystem(systemPrompt)
+		verCtx, verFile, err := newCtx("verifier")
+		if err != nil {
+			a.console.Error(err.Error())
+			return
+		}
 		loopFiles = append(loopFiles, verFile)
-		a.runner.Loop(verCtx, verFile, fmt.Sprintf(
+		if err := a.runSession(runCtx, verCtx, verFile, fmt.Sprintf(
 			"[Verify iter %d]\n"+
 				"GOAL: %s\n"+
 				"Files changed by implementer: \n%s\n\n"+
@@ -70,7 +79,10 @@ func (a *App) runLoopEngine(goal string, maxIter int) {
 				"   - 'VERIFY: PASS, NO_ISSUES'\n"+
 				"   - 'VERIFY: PASS, ISSUES: <list>'\n\n"+
 				"Explain at architecture-level (module/flow), not function-level.",
-			iteration, goal, implFiles))
+			iteration, goal, implFiles)); err != nil {
+			a.console.Error(err.Error())
+			return
+		}
 
 		verifyResult := completionResult(verCtx)
 		if verifyResult != "" && strings.Contains(verifyResult, "VERIFY: PASS") {
@@ -78,10 +90,13 @@ func (a *App) runLoopEngine(goal string, maxIter int) {
 			return
 		}
 
-		updCtx, updFile := newCtx("updater")
-		updCtx.AppendSystem(systemPrompt)
+		updCtx, updFile, err := newCtx("updater")
+		if err != nil {
+			a.console.Error(err.Error())
+			return
+		}
 		loopFiles = append(loopFiles, updFile)
-		a.runner.Loop(updCtx, updFile, fmt.Sprintf(
+		if err := a.runSession(runCtx, updCtx, updFile, fmt.Sprintf(
 			"[Updater iter %d]\n"+
 				"GOAL: %s\n"+
 				"Verifier FAILED: %s\n\n"+
@@ -92,7 +107,10 @@ func (a *App) runLoopEngine(goal string, maxIter int) {
 				"Identify what's missing or unclear in the original goal.\n\n"+
 				"Output: a single prompt, 50-200 words, specific constraints.\n"+
 				"Call `attempt_completion` tool to return the refined prompt.",
-			iteration, goal, verifyResult))
+			iteration, goal, verifyResult)); err != nil {
+			a.console.Error(err.Error())
+			return
+		}
 		refined := completionResult(updCtx)
 		if refined != "" {
 			implCtx.AppendUser(fmt.Sprintf("[Refined prompt from updater iter %d]\n%s", iteration, refined))

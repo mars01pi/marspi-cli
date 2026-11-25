@@ -86,6 +86,8 @@ export MARS_MODEL=deepseek-v4-flash
 
 持久化目录：`<cwd>/.marspicli/`（session、memory、loops、providers.json、checkpoints.db）
 
+CLI 负责读取 `MARS_*` 配置、装配系统提示词和管理会话文件。普通模式、TUI 和 `/loop` 都调用 Core 的 `agent.Run`，运行结束（包括取消）后由 CLI 保存一次会话。`session.json` 沿用原有消息数组格式，并支持从旧 `.tmp` 文件恢复；`/new` 备份后立即保存新会话，`/compact` 成功后立即保存。提示词只为当前已注册的工具生成使用指引。
+
 Supervisor（`/sv`）与 DevFlow（`/df`）会把 graph Snapshot 写入 checkpoints.db。Esc 中断或 HITL 挂起后可用 `/sv resume` / `/df resume <threadID>` 跨进程续跑（只恢复图状态，不恢复 agent 对话；见 marspi-graph ADR 0004）。`/sv list` / `/df list` 列出可续跑线程。
 
 DevFlow（`/df` / `/devflow`）加载内置 Design→Develop→Review→Test→Push Spec（或 `--workflow path.yaml`）。Push 前 Confirm；`--no-push` 只改代码不推送。
@@ -143,23 +145,17 @@ marspi-cli/
 ├── cmd/
 │   ├── root.go             # App 装配 + TUI/Plain 双模式
 │   ├── repl.go             # Bubble Tea TUI
+│   ├── session.go          # 会话加载与单轮运行后的保存
 │   ├── engine.go           # Loop Engineering
 │   ├── flashext.go         # Flash-ext 代理
 │   └── doctor.go           # 环境诊断
 ├── internal/
-│   ├── agent/              # ReAct 主循环
-│   ├── agentctx/           # 上下文管理 + 三级压缩
 │   ├── config/             # 配置加载
-│   ├── llm/                # LLM provider + Smart Routing
-│   ├── flash/              # 结构化思考框架
 │   ├── flashext/           # OpenAI 兼容代理服务
-│   ├── tool/               # 12 个内置工具
-│   ├── memory/             # 长期记忆 (Markdown)
 │   ├── prompt/             # 系统提示词
-│   ├── skill/              # 技能加载
+│   ├── session/            # JSON 会话存储、恢复与备份
 │   ├── i18n/               # 国际化 (en/zh)
-│   ├── ui/                 # TUI 事件 + Printer + Hooks
-│   └── logx/               # 调试日志
+│   └── ui/                 # TUI 事件 + Printer + Hooks
 └── .marspicli/             # 持久化目录
 ```
 

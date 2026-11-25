@@ -12,10 +12,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/mars/marspi-cli/internal/config"
 	"github.com/mars/marspi-cli/internal/i18n"
 	"github.com/mars/marspi-cli/internal/ui"
 	"github.com/mars/marspi-core/agentctx"
-	"github.com/mars/marspi-core/config"
 	"github.com/mars/marspi-core/logx"
 )
 
@@ -734,9 +734,10 @@ func (m *replModel) startAgent(userInput string) tea.Cmd {
 
 	go func() {
 		defer unsubAgent()
-		m.app.runner.LoopCtx(ctx, m.ctx, m.ctxFile, normal)
-		m.ctx.ClearRuntimeInjections()
-		_ = m.ctx.Save(m.ctxFile)
+		defer cancel()
+		if err := m.app.runSession(ctx, m.ctx, m.ctxFile, normal); err != nil && err != context.Canceled {
+			m.app.console.Error(err.Error())
+		}
 		if m.program != nil {
 			m.program.Send(agentDoneMsg{})
 		}
@@ -753,12 +754,16 @@ func (m *replModel) startLoop(input, goal string) (tea.Model, tea.Cmd) {
 	m.pushHist("success", "🎯 Loop: "+goal)
 	m.pushUserInput(input)
 
+	ctx, cancel := context.WithCancel(context.Background())
+	m.agentCancel = cancel
+
 	unsubAgent := m.app.runner.Events.Subscribe(agentTUIHandler(m.eventCh))
 	m.app.console.SetHooks(m.uiHooks())
 
 	go func() {
 		defer unsubAgent()
-		m.app.runLoopEngine(goal, 5)
+		defer cancel()
+		m.app.runLoopEngine(ctx, goal, 5)
 		if m.program != nil {
 			m.program.Send(agentDoneMsg{})
 		}

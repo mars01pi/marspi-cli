@@ -14,10 +14,12 @@ jobs:
   test:
     name: Test · Go ${{ matrix.go-version }}
     runs-on: ubuntu-latest
+    env:
+      GOTOOLCHAIN: local
     strategy:
       fail-fast: false
       matrix:
-        go-version: ['1.22', '1.23', '1.24']
+        go-version: ['1.25.x', '1.26.x']
 
     steps:
       - uses: actions/checkout@v4

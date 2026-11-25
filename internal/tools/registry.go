@@ -43,7 +43,7 @@ func Register(registry *coretool.Registry, options Options) {
 	registry.Register(&appendMemoryTool{mem: options.Memory})
 	registry.Register(&webSearchTool{apiKey: options.SearchKey})
 	registry.Register(image)
-	registry.Register(NewAttemptCompletionTool())
+	registry.Register(coretool.NewAttemptCompletionTool())
 
 	if options.Retriever != nil {
 		registry.Register(NewKnowledgeTool(options.Retriever, options.RAGTopK))

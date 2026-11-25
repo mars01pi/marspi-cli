@@ -171,3 +171,33 @@ func TestNewSessionCommandPersistsResetAndBacksUpHistory(t *testing.T) {
 		t.Fatalf("previous session was not backed up: %v %v", previous, err)
 	}
 }
+
+func TestCompactCommandPersistsSummary(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		_ = json.NewEncoder(writer).Encode(map[string]any{
+			"choices": []any{map[string]any{
+				"finish_reason": "stop",
+				"message":       llm.Message{"role": "assistant", "content": "condensed history"},
+			}},
+		})
+	}))
+	defer server.Close()
+	app := sessionTestApp(server.URL)
+	path := filepath.Join(t.TempDir(), "session.json")
+	history, err := app.newSession(path, "rules")
+	if err != nil {
+		t.Fatal(err)
+	}
+	history.AppendUser("previous question")
+	if err := (session.File{Path: path}).Save(history.Messages); err != nil {
+		t.Fatal(err)
+	}
+	handled, quit := app.handleCommand("/compact", history, path, "rules")
+	if !handled || quit {
+		t.Fatalf("handled=%v quit=%v", handled, quit)
+	}
+	resumed, err := app.newSession(path, "unused rules")
+	if err != nil || resumed.Len() != 2 || resumed.Messages[1]["content"] != "condensed history" {
+		t.Fatalf("compact result was not persisted: history=%v err=%v", resumed, err)
+	}
+}

@@ -4,8 +4,8 @@ import (
 	"errors"
 	"flag"
 
+	"github.com/mars/marspi-cli/internal/config"
 	"github.com/mars/marspi-cli/internal/flashext"
-	"github.com/mars/marspi-core/config"
 	"github.com/mars/marspi-core/llm"
 )
 

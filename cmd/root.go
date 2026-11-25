@@ -13,14 +13,15 @@ import (
 	"github.com/mars/marspi-cli/internal/i18n"
 	"github.com/mars/marspi-cli/internal/prompt"
 	"github.com/mars/marspi-cli/internal/session"
+	clitools "github.com/mars/marspi-cli/internal/tools"
 	"github.com/mars/marspi-cli/internal/ui"
 	"github.com/mars/marspi-core/agent"
 	"github.com/mars/marspi-core/agentctx"
-	coreconfig "github.com/mars/marspi-core/config"
 	"github.com/mars/marspi-core/llm"
 	"github.com/mars/marspi-core/logx"
 	"github.com/mars/marspi-core/mcp"
 	"github.com/mars/marspi-core/memory"
+	"github.com/mars/marspi-core/rag"
 	"github.com/mars/marspi-core/skill"
 	"github.com/mars/marspi-core/tool"
 	"github.com/mattn/go-isatty"
@@ -51,12 +52,19 @@ func NewApp(cfg *config.Config) *App {
 	skills := skill.New(nil)
 	skills.AddBasePath(filepath.Join(cfg.BasePersist, "skills"))
 
-	registry := tool.NewRegistry(&coreconfig.Config{
-		ProjectRoot: cfg.ProjectRoot,
-		RAGURL:      cfg.RAGURL,
-		RAGAPIKey:   cfg.RAGAPIKey,
-		RAGTopK:     cfg.RAGTopK,
-	}, console, mem, skills)
+	var retriever rag.Retriever
+	if cfg.RAGURL != "" {
+		retriever = rag.NewHTTPRetriever(cfg.RAGURL, cfg.RAGAPIKey, 0)
+	}
+	registry := clitools.NewRegistry(clitools.Options{
+		Root:      cfg.ProjectRoot,
+		Host:      console,
+		Memory:    mem,
+		Skills:    skills,
+		SearchKey: cfg.SearchKey,
+		Retriever: retriever,
+		RAGTopK:   cfg.RAGTopK,
+	})
 	if cfg.MCPEnabled {
 		if mcpCfg, err := mcp.LoadMergedConfig(cfg.ProjectRoot); err != nil {
 			console.Warning("Failed to load MCP config, MCP disabled: " + err.Error())
